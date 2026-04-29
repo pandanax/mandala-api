@@ -395,10 +395,13 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
+deploy = [
+    { name = "alembic" },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "alembic", marker = "extra == 'dev'", specifier = ">=1.14" },
+    { name = "alembic", marker = "extra == 'dev' or extra == 'deploy'", specifier = ">=1.14" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
@@ -410,7 +413,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "uvicorn", specifier = ">=0.32" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "deploy"]
 
 [[package]]
 name = "markupsafe"

@@ -21,6 +21,10 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.8",
 ]
+# Образ приложения (Containerfile): runtime + Alembic без dev-инструментов.
+deploy = [
+    "alembic>=1.14",
+]
 
 [build-system]
 requires = ["hatchling>=1.24"]

@@ -133,6 +133,13 @@ uv sync --extra dev && uv run ruff check src tests scripts && uv run ruff format
 
 В репозитории настроен workflow **`.github/workflows/ci.yml`**: при **`push`** в ветки **`main`** / **`master`** и при **`pull_request`** выполняются **`uv sync --extra dev --frozen`**, **ruff**, **mypy**, контейнер **PostgreSQL 16.6** (образ **`postgres:16.6-alpine`**, учётные данные как в **`.env.example`**), проверка подключения, **`alembic upgrade head`**, полный **`pytest`** (включая маркер **`integration`**). Отдельные секреты **`DATABASE_URL`** в репозитории не нужны: URL задан в workflow и совпадает с сервисом. В **форках** первый запуск Actions может потребовать разрешения у владельца upstream-репозитория; при отключённых Actions проверку повторяют локально: **`bash scripts/check.sh`** и при поднятом Postgres — **`bash scripts/verify_project.sh`**.
 
+## Контейнер и деплой (тикет 23)
+
+- **Образ:** **`Containerfile`**, сборка **`podman build -f Containerfile -t mandala:local .`** или **`bash scripts/deploy/build_image.sh`** (см. **`scripts/deploy/README.md`**).
+- **Runtime:** в образе зависимости **`[project]`** + extra **`deploy`** (Alembic); сборка по умолчанию под **`linux/amd64`** (скрипт **`build_image.sh`**); по умолчанию в образе **`HOST=127.0.0.1`** — на ВМ задайте **`HOST=0.0.0.0`** при публикации порта для Nginx.
+- **Terraform (аддитивно):** каталог **`terraform/`** — A-запись для поддомена API; **`terraform/README.md`**, **`terraform.tfvars.example`**. State и **`terraform.tfvars`** с секретами — **не в git** (см. **`.gitignore`**). Полный прод-IaC и remote state — **тикет 24** и следующие этапы плана.
+- **Подробно про YC и пути на ВМ:** **`docs/deployment-yandex-cloud.md`**. **Первый MVP (токены, webhook):** **`docs/mvp-first-run.md`**.
+
 ## Тесты отдельно
 
 ```bash

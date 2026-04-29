@@ -1,0 +1,7 @@
+# Скопируйте в terraform.tfvars (файл в .gitignore). Значения — из ``yc``.
+
+folder_id     = "b1gxxxxxxxxxxxxxxxx"
+dns_zone_id   = "dns8xxxxxxxxxxxxxxxx"
+vm_public_ip  = "84.xxx.xxx.xxx"
+# dns_record_name = "api"
+# dns_ttl         = 600

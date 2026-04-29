@@ -14,6 +14,8 @@
 | [quotas-and-plans.md](quotas-and-plans.md) | Планы, лимиты (в т.ч. 0 картинок), учёт usage |
 | [agent.md](agent.md) | Оркестрация (граф), роутинг моделей, RAG, память диалога |
 | [implementation-plan.md](implementation-plan.md) | Пошаговые тикеты для реализации (для ИИ-агента и команды) |
+| [deployment-yandex-cloud.md](deployment-yandex-cloud.md) | Деплой в Yandex Cloud: ресурсы, сеть, БД, Docker, Terraform, обновления |
+| [mvp-first-run.md](mvp-first-run.md) | Чеклист первого MVP: куда вписать Telegram и DeepSeek, webhook, проверки |
 
 ## Принципы
 
