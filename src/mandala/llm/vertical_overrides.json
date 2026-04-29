@@ -1,0 +1,8 @@
+{
+  "astrology": {
+    "model": "gpt-4o"
+  },
+  "therapy": {
+    "model": "gpt-4o-mini"
+  }
+}

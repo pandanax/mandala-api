@@ -160,3 +160,20 @@ class TelegramBotApiClient:
         out = self.call("sendPhoto", p)
         assert isinstance(out, dict)
         return out
+
+    def answer_pre_checkout_query(
+        self,
+        *,
+        pre_checkout_query_id: str,
+        ok: bool,
+        error_message: str | None = None,
+    ) -> bool:
+        """``answerPreCheckoutQuery`` — подтверждение or отказ (Stars)."""
+        p: dict[str, Any] = {
+            "pre_checkout_query_id": pre_checkout_query_id,
+            "ok": ok,
+        }
+        if not ok and error_message:
+            p["error_message"] = error_message
+        raw = self.call("answerPreCheckoutQuery", p)
+        return bool(raw)

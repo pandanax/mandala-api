@@ -1,4 +1,7 @@
-"""Маскирование секретов для логов (тикет 9)."""
+"""Маскирование секретов для логов (тикет 9).
+
+Для API-ключей провайдеров (LLM и т.д.) — :func:`mandala.observability.mask_api_key`.
+"""
 
 from __future__ import annotations
 

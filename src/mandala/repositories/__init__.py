@@ -2,6 +2,7 @@
 
 from mandala.repositories.artifacts import ArtifactRepository
 from mandala.repositories.messages import MessageRepository
+from mandala.repositories.payments import PaymentTransactionsRepository
 from mandala.repositories.plans import PlanLimitDTO, PlanLimitsRepository, PlansRepository
 from mandala.repositories.profiles import ClientProfileDTO, ProfileRepository
 from mandala.repositories.usage import UsageRepository
@@ -12,6 +13,7 @@ __all__ = [
     "ArtifactRepository",
     "ClientProfileDTO",
     "MessageRepository",
+    "PaymentTransactionsRepository",
     "PlanLimitDTO",
     "PlanLimitsRepository",
     "PlansRepository",

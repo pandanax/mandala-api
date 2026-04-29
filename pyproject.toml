@@ -9,6 +9,7 @@ dependencies = [
     "httpx>=0.27",
     "psycopg[binary]>=3.2",
     "pydantic>=2",
+    "qdrant-client>=1.11",
     "sqlalchemy>=2.0",
     "uvicorn>=0.32",
 ]
@@ -55,4 +56,5 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
     "integration: тесты с реальной БД (нужен DATABASE_URL)",
+    "llm_live: опциональный вызов реального LLM (нужны LLM_LIVE_TEST=1 и LLM_*)",
 ]

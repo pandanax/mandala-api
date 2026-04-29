@@ -23,5 +23,16 @@ services:
       retries: 10
       start_period: 10s
 
+  # Опционально: векторное хранилище для RAG (тикет 16). Запуск: podman compose up -d qdrant
+  qdrant:
+    image: docker.io/qdrant/qdrant:v1.12.5
+    container_name: mandala-qdrant
+    restart: unless-stopped
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - mandala_qdrant_data:/qdrant/storage
+
 volumes:
   mandala_pg_data:
+  mandala_qdrant_data:

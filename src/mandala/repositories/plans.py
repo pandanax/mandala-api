@@ -29,6 +29,30 @@ class PlansRepository:
         assert isinstance(pid, UUID)
         return pid
 
+    def fetch_id_by_billing_product(
+        self,
+        *,
+        billing_provider: str,
+        external_product_id: str,
+    ) -> UUID | None:
+        """Сопоставить ``invoice_payload`` / внешний id товара с планом (тикет 19)."""
+        row = self._conn.execute(
+            text(
+                """
+                SELECT id
+                FROM plans
+                WHERE billing_provider = :bp
+                  AND external_product_id = :eid
+                """
+            ),
+            {"bp": billing_provider, "eid": external_product_id},
+        ).one_or_none()
+        if row is None:
+            return None
+        pid = row[0]
+        assert isinstance(pid, UUID)
+        return pid
+
 
 @dataclass(frozen=True)
 class PlanLimitDTO:

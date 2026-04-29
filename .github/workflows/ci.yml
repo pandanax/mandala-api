@@ -1,0 +1,64 @@
+# Тикет 22: линт, типы, pytest; PostgreSQL 16.6 + Alembic + интеграционные тесты.
+# Локально: Podman Compose (README); в CI — официальный образ library/postgres.
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_PYTHON: "3.11"
+  # Совпадает с .env.example / compose.yaml по умолчанию; сервис слушает localhost:5432 на раннере.
+  DATABASE_URL: postgresql://mandala:changeme@localhost:5432/mandala
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: docker.io/library/postgres:16.6-alpine
+        env:
+          POSTGRES_USER: mandala
+          POSTGRES_PASSWORD: changeme
+          POSTGRES_DB: mandala
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mandala -d mandala"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: Ruff check
+        run: uv run ruff check src tests scripts
+
+      - name: Ruff format
+        run: uv run ruff format --check src tests scripts
+
+      - name: Mypy
+        run: uv run mypy src/mandala tests scripts
+
+      - name: PostgreSQL (SELECT 1)
+        run: uv run python scripts/check_postgres.py
+
+      - name: Alembic upgrade head
+        run: uv run python -m alembic upgrade head
+
+      - name: Pytest (включая integration; эквивалент verify_project после Alembic)
+        run: uv run pytest

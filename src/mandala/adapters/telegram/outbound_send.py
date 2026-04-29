@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+from uuid import UUID
 
 from mandala.adapters.telegram.bot_api import TelegramBotApiClient
 from mandala.domain import OutboundMessage
+from mandala.observability import op_format
+
+logger = logging.getLogger(__name__)
 
 
 def _buttons_to_reply_markup(buttons: list[list[dict[str, str]]]) -> dict[str, Any]:
@@ -25,8 +30,25 @@ def deliver_outbound_messages(
     *,
     chat_id: int,
     messages: list[OutboundMessage],
+    vertical_id: str | None = None,
+    user_id: UUID | None = None,
 ) -> None:
-    """Отправить ответы пользователю (``sendMessage`` / ``sendPhoto``)."""
+    """Отправить ответы пользователю (``sendMessage`` / ``sendPhoto``).
+
+    ``vertical_id`` / ``user_id`` — только для операционных логов (тикет 20), без PII текста.
+    """
+    if vertical_id is not None and messages:
+        n_photo = sum(1 for m in messages if m.photo)
+        logger.info(
+            "funnel outbound %s",
+            op_format(
+                vertical_id=vertical_id,
+                user_id=user_id,
+                stage="telegram_deliver",
+                n_messages=len(messages),
+                n_photo=n_photo,
+            ),
+        )
     for msg in messages:
         markup: dict[str, Any] | None = None
         if msg.buttons:

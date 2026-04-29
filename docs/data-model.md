@@ -54,7 +54,7 @@
 
 - `user_id` (PK или FK), **`vertical_id`**
 - **`agent_card` JSONB** — всё агент-специфичное: анкета, слоты, ответы пользователя в свободной форме
-- **`scenario_state` JSONB** — текущий шаг графа, флаги, машина состояний
+- **`scenario_state` JSONB** — текущий шаг графа, флаги, машина состояний. В коде (тикет 13) для анкеты: `intake_step_index`, `intake_complete`, `intake_schema_version` (см. `mandala.services.scenario_intake`); порядок полей и подсказки задаются JSON **`mandala/verticals/intake_steps.json`** (или путь из **`MANDALA_INTAKE_STEPS_PATH`**). Опционально (тикет 17): строковый ключ **`dialog_summary`** — краткая сводка диалога для подмешивания в **system** перед историей из **`messages`**; обновление сводки не входит в scope тикета 17.
 - при необходимости денормализованные колонки для частых фильтров (например `display_name` text)
 
 Персональные данные хранить осознанно (политика удаления, минимизация логов).
@@ -68,19 +68,19 @@
 ### `messages`
 
 - `id`, `user_id`, **`vertical_id`**, `role` (`user` / `assistant` / `system`)
-- опционально **`content_kind`** — грубый тип контента (текст, изображение, файл, …) для фильтров и аналитики
+- опционально **`content_kind`** — грубый тип контента (текст, изображение, файл, …) для фильтров и аналитики; при демо-ветке генерации (тикет 14) у ассистента возможен **`image`** с текстом-описанием и **`content_meta`** без бинарного тела
 - `content_text` (TEXT, опционально) — плоский текст для простых кейсов
 - **`content_meta` JSONB** — вложения, `telegram_file_id`, ссылки на объектное хранилище, mime-type
 - `created_at`
 - при больших объёмах — **summary** в отдельном поле JSONB или таблице `conversation_summaries`
 
-**Индекс под типовой запрос «последние N сообщений»:** btree **`(user_id, vertical_id, created_at DESC)`** — ускоряет `ORDER BY created_at DESC LIMIT N` в разрезе пользователя и вертикали (см. миграцию `t4_01_dialog_oltp`). При равных `created_at` в приложении задайте детерминированный порядок (например вторично **`id DESC`** в репозитории сообщений, тикет 5).
+**Индекс под типовой запрос «последние N сообщений»:** btree **`(user_id, vertical_id, created_at DESC)`** — ускоряет `ORDER BY created_at DESC LIMIT N` в разрезе пользователя и вертикали (см. миграцию `t4_01_dialog_oltp`). При равных `created_at` в приложении задайте детерминированный порядок (например вторично **`id DESC`** в репозитории сообщений, тикет 5). В коде **`MessageRepository.insert`** задаёт **`created_at`** явно (**`datetime.now(UTC)`**), чтобы пары user/assistant в одной транзакции не получали одинаковый серверный **`now()`** и не нарушали хронологию при **`id`** из **`gen_random_uuid()`**.
 
 ### `generated_artifacts` (рекомендуется для аудита рекомендаций и медиа)
 
 - `id`, `user_id`, **`vertical_id`**
 - `kind` (`text_recommendation`, `image`, …)
-- **`payload` JSONB** — текст рекомендаций, URL, id файла, произвольная структура под агента
+- **`payload` JSONB** — текст рекомендаций, URL изображения от провайдера (`image_url`), `telegram_file_id` (если позже сохранять после загрузки в Telegram), произвольная структура под агента. Пример для сгенерированной картинки (тикет 15): `{"provider":"openai_compatible","prompt_echo":"…","image_url":"https://…"}` или для заглушки: `{"provider":"stub","stub_ref":"stub14",…}`.
 - `source_message_id` → `messages` (опционально)
 - `created_at`
 
@@ -88,7 +88,7 @@
 
 ## Планы и лимиты
 
-См. [quotas-and-plans.md](quotas-and-plans.md). Таблицы: `plans`, `plan_limits` (реляционно; при необходимости расширение `metadata` JSONB на уровне плана).
+См. [quotas-and-plans.md](quotas-and-plans.md). Таблицы: `plans`, `plan_limits` (реляционно; при необходимости расширение `metadata` JSONB на уровне плана). Для Telegram Stars (тикет 19): у платного плана заполняются **`billing_provider`** (например **`telegram_stars`**) и **`external_product_id`** (тот же **``invoice_payload``**, что в **``sendInvoice``**; в seed-после миграции **``t19_01_telegram_stars``** — **``mandala_premium_stars``** для **``premium``**).
 
 ## Usage
 
@@ -118,7 +118,7 @@
 - `raw_payload` (JSONB, для отладки, с маскированием PII)
 - `created_at`
 
-Идемпотентность: повтор webhook с тем же `external_id` не должен дважды активировать план.
+Идемпотентность: повтор webhook с тем же `external_id` не должен дважды активировать план. Реализация: **`mandala.repositories.payments.PaymentTransactionsRepository`** + **`mandala.services.billing.PostgresBillingProvider`** (тикет 18).
 
 ## База знаний (метаданные)
 
@@ -129,4 +129,4 @@
 - `id`, **`vertical_id`**, `title`, `source`, `chunking_version`
 - при необходимости связь с объектами в object storage
 
-Чанки и векторы — **во внешнем векторном хранилище** с ссылкой на `document_id` и `chunk_index` / `chunk_id`.
+Чанки и векторы — **во внешнем векторном хранилище** (в коде тикета 16: **Qdrant**, payload с `vertical_id`, `source_path`, `chunk_index`, `text`) с возможностью дублировать учёт в **`kb_documents`** в Postgres позже.

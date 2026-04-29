@@ -117,7 +117,7 @@
 
 ---
 
-**Состояние кода (актуализация после тикета 10):** слой данных тикета 5 плюс **`PlansRepository`** (`plans.fetch_id_by_name`), сервис **`mandala.services.user_identity.UserIdentityService`**, **`handle_inbound(event, conn)`** в **`mandala.domain`**, адаптер **`mandala.adapters.telegram`** (тикет 9), HTTP-слой **`mandala.http`** (тикет 10: FastAPI, health, webhook). Как у тикета 7: `UsageRepository`, `billing_period.py`, **`mandala.services.quota`**, `db/engine.py`, интеграционные тесты при **`DATABASE_URL`**. Сквозная проверка: **`make check`** / **`bash scripts/check.sh`**; с БД и миграциями — **`bash scripts/verify_project.sh`** (см. README).
+**Состояние кода (актуализация после тикета 20):** как после тикета 19, плюс операционные логи воронки **`inbound → quota → llm → outbound`** и биллинга: модуль **`mandala.observability`** (**`op_format`**, **`mask_api_key`**), префикс сообщений **`funnel`** в **`handle_inbound`**, **`QuotaService`**, **`text_reply`** / **`image_reply`**, **`deliver_outbound_messages`** (при переданном **`vertical_id`**), **`mandala.http`** (webhook), **`mandala.adapters.telegram.polling`**, **`process_telegram_billing_update`**; в **`apply_plan_change`** / **`PostgresBillingProvider.activate_plan`** — поля **`reason`** / **`outcome`** без сырого PII на INFO. Сквозная проверка: **`bash scripts/check.sh`**; с БД — **`bash scripts/verify_project.sh`** (см. README).
 
 ## Тикет 7. Сервис квот: проверка и атомарный инкремент usage
 
@@ -207,6 +207,8 @@
 
 **Зависимости:** тикет 1 (можно параллельно с 9–10 при разделении работ).
 
+**Состояние кода (закрыто):** пакет **`mandala.llm`**: **`TextCompletionClient`** (Protocol), **`OpenAICompatibleTextClient`** (**httpx**, **`POST …/chat/completions`**), **`ChatMessage`** / **`ChatRole`**, **`LlmEnvSettings.from_env()`** (`LLM_BASE_URL`, **`LLM_API_KEY`**, **`LLM_MODEL`**), **`LlmConfigProvider`** + **`load_vertical_overrides`** (JSON per **`vertical_id`**, опционально **`LLM_VERTICAL_OVERRIDES_PATH`**, иначе **`mandala/llm/vertical_overrides.json`** в пакете), доменное исключение **`LlmProviderError`**. Тесты: **`tests/test_llm_openai_client.py`** (**`httpx.MockTransport`**), маркер **`llm_live`** + **`LLM_LIVE_TEST=1`** для опционального живого вызова — см. **README**.
+
 ---
 
 ## Тикет 12. Минимальный «агент»: один запрос — один ответ без графа
@@ -224,6 +226,8 @@
 
 **Зависимости:** тикеты 7, 8, 9, 10, 11.
 
+**Состояние кода (закрыто):** **`mandala.services.text_reply.handle_inbound_text_llm`**: запись **user** в **`messages`**, **`QuotaService`** (**`can_consume`** / **`consume`**, ресурс **`text_reply`**), системный промпт **`mandala.verticals.get_vertical_system_prompt`** (разные строки для **`astrology`** и **`therapy`**), вызов **`mandala.llm.factory.create_text_client_for_vertical`** или переданного **`llm_client`**; ответ **assistant** в **`messages`**; **`handle_inbound(event, conn, llm_client=None)`** — опциональная подмена клиента для тестов. Интеграционные тесты: **`tests/integration/test_text_reply_quota.py`** (лист без LLM при исчерпании квоты); **`tests/integration/test_http_integration.py`** и **`tests/integration/test_user_identity.py`** обновлены под пайплайн. Локальный запуск бота/webhook требует **`LLM_*`** в окружении (см. **README**, `.env.example`). Полный E2E Telegram до лимита free — ручная проверка / смоук по **`messages`** и **`usage_counters`**.
+
 ---
 
 ## Тикет 13. Граф сценария: сбор полей профиля **по конфигу вертикали**
@@ -240,6 +244,8 @@
 
 **Зависимости:** тикет 12.
 
+**Состояние кода (закрыто):** цепочки шагов в JSON **`mandala/verticals/intake_steps.json`** (переопределение: **`MANDALA_INTAKE_STEPS_PATH`**); загрузка **`mandala.verticals.intake_loader`**, публичный API **`mandala.verticals.intake_config`** (`intake_steps_for_vertical`, кэш, **`clear_intake_steps_cache`**); валидаторы по полю **`validator.kind`** — **`mandala.verticals.intake_validators`**. Для **`astrology`** — `birth_place` → `birth_time`, для **`therapy`** — `main_concern` → `mood`. Сервис **`mandala.services.scenario_intake.handle_intake_before_llm`** (ключи **`scenario_state`**: `intake_step_index`, `intake_complete`, `intake_schema_version`); в **`handle_inbound`** сначала анкета, затем тикет 14+ (**`intent_router`** / **`text_reply`** / **`image_reply`**). Тесты: **`tests/integration/test_scenario_intake.py`**, **`tests/test_scenario_intake_logic.py`**, **`tests/test_intake_loader.py`**.
+
 ---
 
 ## Тикет 14. Роутер задач: текст vs изображение
@@ -253,6 +259,8 @@
 - Лимит 0 → нет вызова image API; текстовая ветка не ломается.
 
 **Зависимости:** тикеты 7, 11, 13.
+
+**Состояние кода (закрыто):** **`mandala.services.intent_router`** (`post_intake_intent`, **`image_prompt_from_user_text`**): команды **`/image`**, **`/picture`**, префиксы **`нарисуй `**, **`draw `** → **`mandala.services.image_reply.handle_inbound_image_generation`** (квота **`RESOURCE_IMAGE_GENERATION`**, **`can_consume`** до вызова клиента; при лимите **0** или исчерпании — **без** вызова **`ImageGenerationClient.generate`**); при успехе — заглушка **`StubImageGenerationClient`**, запись в **`messages`** (**`content_kind=image`**), **`consume`**. Protocol **`ImageGenerationClient`**, **`ImageGenerationResult`**, фабрика **`create_stub_image_client_for_vertical`** в **`mandala.llm`**. **`handle_inbound(..., image_client=None)`** для тестов. Юнит-тесты: **`tests/test_intent_router.py`**, **`tests/test_image_stub.py`**; интеграция: **`tests/integration/test_image_router_quota.py`**.
 
 ---
 
@@ -268,6 +276,8 @@
 - Пользователь получает фото при ненулевом лимите; в БД есть запись об артефакте.
 
 **Зависимости:** тикет 14.
+
+**Состояние кода (закрыто):** **`mandala.llm`**: **`ImageEnvSettings`** (`IMAGE_GENERATION_PROVIDER` **`stub`** | **`openai_compatible`**, **`IMAGE_BASE_URL`** / **`IMAGE_API_KEY`** / **`IMAGE_MODEL`**, fallback на **`LLM_*`**), **`OpenAICompatibleImageClient`** (`POST …/images/generations`, **`response_format=url`**), **`create_image_client_for_vertical`**, **`StubImageGenerationClient`**; **`mandala.services.image_reply.handle_inbound_image_generation`**: **`can_consume`** до вызова API; **`consume`** и запись в **`messages`** + **`generated_artifacts`** (`kind=image`, JSONB **`payload`**: `image_url`, `provider`, `stub_ref`, `prompt_echo`) только после успеха; при **`LlmProviderError`** — сообщение пользователю без **`consume`**; при наличии **`image_url`** — **`OutboundMessage(photo=url)`** → Telegram **`sendPhoto`**. **MVP:** синхронная генерация в webhook/polling (без Redis/worker); таймаут чтения HTTP ~180 с — см. **README**, **`docs/architecture.md`**. Юнит-тест: **`tests/test_openai_image_client.py`**; интеграция: **`tests/integration/test_image_router_quota.py`**.
 
 ---
 
@@ -287,6 +297,8 @@
 
 **Зависимости:** тикет 12 или 13.
 
+**Состояние кода (закрыто):** MVP-векторное хранилище — **Qdrant** (`qdrant-client`), не в OLTP Postgres. Пакет **`mandala.rag`**: **`RagEnvSettings`**, **`OpenAICompatibleEmbeddingClient`** (`POST …/embeddings`), **`QdrantVerticalKbStore`** (payload **`vertical_id`**, фильтр при **`query_points`**), **`create_kb_search_from_env`**, **`KbSearchPort`**, чанкинг и **`build_kb_context_block`** (лимит **`RAG_MAX_CONTEXT_CHARS`**). Сырьё по умолчанию: **`src/mandala/verticals/kb/{vertical_id}/`** (`*.md`, `*.txt`), корень переопределяется **`MANDALA_KB_ROOT`**. CLI: **`python -m mandala.index_kb --vertical <slug>`** (нужны **`MANDALA_RAG_BACKEND=qdrant`**, **`QDRANT_URL`**, **`LLM_*`** для эмбеддингов). В **`mandala.services.text_reply.handle_inbound_text_llm`** перед LLM — retrieval и дополнение **системного** промпта; **`handle_inbound(..., kb_search=None)`** прокидывает опциональную подмену для тестов. Юнит-тест изоляции: **`tests/test_rag_vertical_isolation.py`**. Локально Qdrant — сервис в **`compose.yaml`** (порт **`QDRANT_PORT`**, по умолчанию **6333**). Таблица **`kb_documents`** в Postgres — **не** введена в этом тикете (метаданные в payload Qdrant достаточно для MVP).
+
 ---
 
 ## Тикет 17. Память диалога: история и summary (опционально для MVP)
@@ -298,6 +310,8 @@
 **Критерии приёмки:** предсказуемая обрезка по N; значение N в доке.
 
 **Зависимости:** тикет 12.
+
+**Состояние кода (закрыто):** **`mandala.services.text_reply`**: константа **`TEXT_REPLY_CONTEXT_MESSAGES`** (= **20**), выборка **`MessageRepository.list_recent`** после записи входа пользователя, сбор **`ChatMessage`** (роли **`user`**/**`assistant`**, пустой **`content_text`** пропускается); порядок контекста: системный промпт вертикали → KB (RAG) → опционально **`dialog_summary`** из **`scenario_state`** → история; **`handle_inbound`** передаёт сводку в **`handle_inbound_text_llm`**. Юнит-тест: **`tests/test_text_reply_dialog_context.py`**; интеграция: **`tests/integration/test_text_reply_dialog_memory.py`**. Связка **`RAG_MAX_CONTEXT_CHARS`** / **`max_tokens`** / история — **`docs/agent.md`**, **README**.
 
 ---
 
@@ -313,6 +327,8 @@
 
 **Зависимости:** тикеты 3–5 (можно параллельно с 9 при разделении).
 
+**Состояние кода (закрыто):** Protocol **`mandala.services.billing.BillingProvider`**, реализация **`PostgresBillingProvider.activate_plan`**, **`ActivatePlanResult`**; репозиторий **`mandala.repositories.payments.PaymentTransactionsRepository`** (вставка со **`ON CONFLICT DO NOTHING RETURNING`** по **``uq_payment_provider_external_id``**); **`UsersRepository.update_current_plan`**. Юнит-тесты: **`tests/test_billing_provider.py`**; интеграция: **`tests/integration/test_billing_activate_plan.py`** (при **`DATABASE_URL`**). Единая политика **``apply_plan_change``** (сброс usage, период подписки, Telegram Stars) — **тикет 19**; при **``user_mismatch``** после вставки платежа вызывающий код должен откатить транзакцию.
+
 ---
 
 ## Тикет 19. Telegram Stars и планы
@@ -323,6 +339,8 @@
 
 **Зависимости:** тикеты 9, 18.
 
+**Состояние кода (закрыто):** миграция **`t19_01_telegram_stars`**: у плана **``premium``** — **`billing_provider=telegram_stars`**, **`external_product_id=mandala_premium_stars`** (тот же **``invoice_payload``** в **``sendInvoice``** / ссылке на товар). **`PlansRepository.fetch_id_by_billing_product`**. **`mandala.services.billing`**: **`BILLING_PROVIDER_TELEGRAM_STARS`**, **`STARS_PLAN_SUBSCRIPTION_DAYS`**, **`apply_plan_change`** (сброс **``usage``** за текущий месяц UTC, **``subscription_period_end``**). **`mandala.services.telegram_stars`**: **`handle_pre_checkout_query`**, **`handle_successful_payment`** (идемпотентность по **``telegram_payment_charge_id``**). **`mandala.adapters.telegram.billing_updates.process_telegram_billing_update`**; **``TelegramBotApiClient.answer_pre_checkout_query``**; long polling и **`mandala.http`**: сначала ветка оплаты; для **оплаты** в webhook требуется токен бота. **`UsageRepository.reset_counts_for_user_vertical_period`**, **`UsersRepository.set_subscription_period_end`**. Интеграция: **`tests/integration/test_telegram_stars_billing.py`**. **TODO: тикет 21+** — продуктовый UI / **`create_payment_offer`**.
+
 ---
 
 ## Тикет 20. Наблюдаемость и операционные логи
@@ -330,6 +348,8 @@
 **Цель:** воронка `inbound → quota → llm → outbound` с **`vertical_id`** в полях лога; без сырого PII в info.
 
 **Зависимости:** тикеты 10, 12.
+
+**Состояние кода (закрыто):** модуль **`mandala.observability`**: **`op_format`** (единый порядок полей: **`vertical_id`**, **`user_id`**, **`channel`**, **`stage`**, **`intent`**, **`resource`**, **`outcome`**, **`reason`**, **`update_id`**, счётчики доставки и т.д.), **`mask_api_key`** для ключей провайдеров; токен бота по-прежнему **`mask_bot_token`** в **`mandala.adapters.telegram.secrets`**. Логи с префиксом **`funnel`** на **INFO**: **`handle_inbound`** (identity, intake, route), **`QuotaService`** (**`can_consume`** / **`consume`** — отказы и **DEBUG** при успешном consume), **`text_reply`** / **`image_reply`** (старт/успех LLM, длина ответа в символах без текста), **`deliver_outbound_messages`** (при **`vertical_id`**), **`mandala.http`** (webhook received / ignored / delivered), **`process_telegram_billing_update`** (pre_checkout / successful_payment), **`polling.process_telegram_update`**. Биллинг: **`PostgresBillingProvider.activate_plan`**, **`apply_plan_change`** с прокидыванием **`reason`** (сценарии Stars и далее). Юнит-тесты: **`tests/test_observability.py`**. OpenTelemetry / метрики — **TODO: за пределами тикета 20**.
 
 ---
 
@@ -341,6 +361,8 @@
 
 **Зависимости:** тикеты 6, 8, 12.
 
+**Состояние кода (закрыто):** **`POST /webhooks/web`** — **`mandala.http.web_chat`** (`APIRouter`), общий engine — **`mandala.http.engine_access.get_engine`** (без циклического импорта с **`mandala.http.app`**). Маппинг HTTP → **`InboundEvent`** (**`channel=web`**) — **`mandala.adapters.web.inbound_map`** (**`resolve_web_vertical_id`**, **`inbound_event_from_web`**): **`vertical_id`** из JSON-тела или **`X-Vertical-Id`**; **`external_user_id`** — заголовок **`X-External-User-Id`** (MVP). Заголовок **`Authorization`** зарезервирован под будущий маппинг ключа → вертикаль (**TODO** в коде). Цепочка: **`handle_inbound(event, conn)`** → JSON **`WebChatResponse.messages`**: список **`OutboundMessage`**. Логи: **`funnel web_inbound`**, **`op_format`**, без текста сообщения на INFO. Юнит-тесты: **`tests/test_web_inbound_map.py`**, **`tests/test_http_app.py`** (web); интеграция с БД: **`tests/integration/test_http_integration.py`** (**`test_web_chat_with_real_database`**). Документация: **`docs/channels.md`**, **`docs/architecture.md`**, **README**.
+
 ---
 
 ## Тикет 22. CI: линт, тесты, Postgres и Alembic
@@ -348,12 +370,14 @@
 **Цель:** зелёный pipeline на чистой ветке.
 
 **Объём:**
-- GitHub Actions / GitLab CI: установка зависимостей, линт, тесты, **service container PostgreSQL**, **`alembic upgrade head`** (или эквивалент прогона миграций).
+- GitHub Actions: установка зависимостей, линт, тесты, **service container PostgreSQL**, **`alembic upgrade head`** (или эквивалент прогона миграций).
 
 **Критерии приёмки:**
 - Падающий линт, тест или миграция блокирует merge.
 
 **Зависимости:** тикеты 1–4 минимум.
+
+**Состояние кода (закрыто):** workflow **`.github/workflows/ci.yml`**: **`uv sync --extra dev --frozen`**, **`UV_PYTHON=3.11`**, **`ruff check`** / **`ruff format --check`**, **`mypy`**, сервис **PostgreSQL** **`docker.io/library/postgres:16.6-alpine`** (пользователь **`mandala`**, пароль **`changeme`**, БД **`mandala`**, порт **5432** на раннере), переменная **`DATABASE_URL=postgresql://mandala:changeme@localhost:5432/mandala`** (как в **`.env.example`**), **`scripts/check_postgres.py`**, **`alembic upgrade head`**, **`pytest`**. Триггеры: **`push`** в **`main`** / **`master`**, все **`pull_request`**. **`scripts/verify_project.sh`**: при **`DATABASE_URL`** сначала **Postgres + Alembic**, затем **`check.sh`** (интеграционные тесты не гоняются до миграций). Миграция **`t19_01_telegram_stars_plan_link`**: вызов **`op.execute`** через **`sa.text(...).bindparams(...)`** (совместимость с Alembic 1.18+). Подробности и форки — **README**.
 
 ---
 
@@ -380,7 +404,7 @@
 1. **Фундамент:** 1 → 2 → 3 → 4 → 5.  
 2. **Контракты и квоты:** 6 → 7 → 8.  
 3. **Telegram + HTTP:** 9 → 10.  
-4. **LLM и сквозной сценарий:** 11 → 12 → 13 → 17 (17 можно после 12).  
+4. **LLM и сквозной сценарий:** 11 → 12 → 13 → 17 (17 после 12).  
 5. **Картинки:** 14 → 15.  
 6. **Знания per vertical + вектор (отдельно от ядра Postgres):** 16 (после стабильного LLM-пайплайна).  
 7. **Деньги:** 18 → 19.  

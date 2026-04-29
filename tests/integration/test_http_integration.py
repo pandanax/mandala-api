@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
-from unittest.mock import patch
+from typing import Any
+from unittest.mock import Mock, patch
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -38,50 +40,115 @@ def test_webhook_with_real_database() -> None:
     app = create_app()
     client = TestClient(app)
 
+    chat_id = int(uuid4().int % (9 * 10**8)) + 10**8
+
     # Настройки окружения для теста
     env_vars = {
         "TELEGRAM_VERTICAL_ID": "astrology",
         "TELEGRAM_BOT_TOKEN": "123:fake-token-for-test",
     }
 
-    # Реалистичный Telegram Update
-    telegram_update = {
-        "update_id": 123456789,
-        "message": {
-            "message_id": 1,
-            "from": {
-                "id": 987654321,
-                "is_bot": False,
-                "first_name": "IntegrationTest",
-                "language_code": "ru",
+    def _msg(text: str, mid: int) -> dict[str, Any]:
+        return {
+            "update_id": 123456780 + mid,
+            "message": {
+                "message_id": mid,
+                "from": {
+                    "id": chat_id,
+                    "is_bot": False,
+                    "first_name": "IntegrationTest",
+                    "language_code": "ru",
+                },
+                "chat": {"id": chat_id, "type": "private"},
+                "date": 1234567890,
+                "text": text,
             },
-            "chat": {"id": 987654321, "type": "private"},
-            "date": 1234567890,
-            "text": "/start",
-        },
-    }
+        }
 
     with (
         patch.dict(os.environ, env_vars),
         patch("mandala.http.app.deliver_outbound_messages") as mock_deliver,
+        patch(
+            "mandala.services.text_reply.create_text_client_for_vertical",
+        ) as mock_llm_factory,
     ):
-        # Не мокаем TelegramBotApiClient полностью, только deliver_outbound_messages
-        # чтобы не делать реальные HTTP запросы к Telegram API
+        llm = Mock()
+        llm.complete.return_value = "Демо-ответ ассистента (вертикаль astrology, тикет 12)."
+        llm.close = Mock()
+        mock_llm_factory.return_value = llm
 
-        response = client.post("/webhooks/telegram/astrology", json=telegram_update)
+        # Тикет 13: сначала анкета (LLM не вызывается), затем диалог
+        r1 = client.post("/webhooks/telegram/astrology", json=_msg("/start", 1))
+        r2 = client.post("/webhooks/telegram/astrology", json=_msg("Санкт-Петербург", 2))
+        r3 = client.post("/webhooks/telegram/astrology", json=_msg("10:15", 3))
+        r4 = client.post("/webhooks/telegram/astrology", json=_msg("Что скажешь про неделю?", 4))
+        response = r4
 
+    assert r1.status_code == 200 and r2.status_code == 200 and r3.status_code == 200
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
 
-    # Проверяем, что ответ был сгенерирован (mock_deliver должен быть вызван)
-    mock_deliver.assert_called_once()
+    assert mock_llm_factory.call_count == 1
+    llm.complete.assert_called_once()
+    assert mock_deliver.call_count == 4
 
-    # Проверяем аргументы вызова
     call_args = mock_deliver.call_args
-    assert call_args[1]["chat_id"] == 987654321
+    assert call_args[1]["chat_id"] == chat_id
     messages = call_args[1]["messages"]
     assert len(messages) > 0
     assert messages[0].text is not None
-    # Проверяем, что в ответе есть информация о вертикали
     assert "astrology" in messages[0].text
+
+
+@pytest.mark.integration
+def test_web_chat_with_real_database() -> None:
+    """Интеграция Web-канала: тот же handle_inbound, ответ JSON (тикет 21)."""
+    if not os.environ.get("DATABASE_URL"):
+        pytest.skip("DATABASE_URL not configured")
+
+    app = create_app()
+    client = TestClient(app)
+
+    ext_uid = f"web-int-{uuid4().hex[:12]}"
+
+    with patch(
+        "mandala.services.text_reply.create_text_client_for_vertical",
+    ) as mock_llm_factory:
+        llm = Mock()
+        llm.complete.return_value = "Демо-ответ ассистента (вертикаль astrology, тикет 12)."
+        llm.close = Mock()
+        mock_llm_factory.return_value = llm
+
+        r1 = client.post(
+            "/webhooks/web",
+            json={"text": "/start", "vertical_id": "astrology"},
+            headers={"X-External-User-Id": ext_uid},
+        )
+        r2 = client.post(
+            "/webhooks/web",
+            json={"text": "Санкт-Петербург", "vertical_id": "astrology"},
+            headers={"X-External-User-Id": ext_uid},
+        )
+        r3 = client.post(
+            "/webhooks/web",
+            json={"text": "10:15", "vertical_id": "astrology"},
+            headers={"X-External-User-Id": ext_uid},
+        )
+        r4 = client.post(
+            "/webhooks/web",
+            json={"text": "Неделя?", "vertical_id": "astrology"},
+            headers={"X-External-User-Id": ext_uid},
+        )
+
+    for r in (r1, r2, r3, r4):
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "messages" in body
+        assert len(body["messages"]) >= 1
+
+    assert mock_llm_factory.call_count == 1
+    llm.complete.assert_called_once()
+    last = r4.json()["messages"][0]
+    assert last.get("text") is not None
+    assert "astrology" in last["text"]

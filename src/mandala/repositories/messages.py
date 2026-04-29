@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -43,11 +43,18 @@ class MessageRepository:
         content_kind: ContentKind | None = None,
         content_meta: dict[str, Any] | None = None,
     ) -> UUID:
+        """Вставить сообщение.
+
+        ``created_at`` задаётся явно (UTC), чтобы в одной транзакции несколько
+        вставок не получали одинаковый ``now()`` и не ломали порядок ``list_recent``.
+        """
+        created_at = datetime.now(tz=UTC)
         row = self._conn.execute(
             text(
                 """
                 INSERT INTO messages (
-                    user_id, vertical_id, role, content_kind, content_text, content_meta
+                    user_id, vertical_id, role, content_kind, content_text, content_meta,
+                    created_at
                 )
                 VALUES (
                     :user_id,
@@ -55,7 +62,8 @@ class MessageRepository:
                     CAST(:role AS message_role),
                     CAST(:content_kind AS message_content_kind),
                     :content_text,
-                    CAST(:content_meta AS jsonb)
+                    CAST(:content_meta AS jsonb),
+                    :created_at
                 )
                 RETURNING id
                 """
@@ -67,6 +75,7 @@ class MessageRepository:
                 "content_kind": content_kind,
                 "content_text": content_text,
                 "content_meta": json.dumps(content_meta) if content_meta is not None else None,
+                "created_at": created_at,
             },
         ).one()
         mid = row[0]

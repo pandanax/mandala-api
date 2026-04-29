@@ -29,11 +29,11 @@
 
 Рекомендация: **`SELECT … FOR UPDATE`** на строке счётчика или единая транзакция «проверка + инкремент» для защиты от гонок.
 
-Реализация в репозитории: атомарный **`UPDATE … WHERE count < limit`** (`UsageRepository.try_increment`); сервис **`mandala.services.quota.QuotaService.consume`** использует его для инкремента.
+Реализация в репозитории: атомарный **`UPDATE … WHERE count < limit`** (`UsageRepository.try_increment`); сервис **`mandala.services.quota.QuotaService.consume`** использует его для инкремента. Для **картинок** (тикет 15) инкремент делается в **`mandala.services.image_reply`** **после** успешного ответа image API; при отказе провайдера (`LlmProviderError`) квота не тратится.
 
 | План | text_reply / месяц | image_generation / месяц |
 |------|---------------------|---------------------------|
-| free | 20 | 1 |
+| free | 20 | 0 |
 | premium | 200 | 10 |
 | trial | 50 | 0 |
 
@@ -46,4 +46,9 @@
 - обнулять ли счётчики текущего периода;
 - или пересчитывать только с следующего периода.
 
-Зафиксировать правило в коде одной функцией `apply_plan_change(user_id, new_plan_id, reason)`.
+**Зафиксировано в коде (тикет 19):** в модуле **`mandala.services.billing`** — функция **`apply_plan_change`**.
+После **первой** идемпотентной активации плана (**`PostgresBillingProvider.activate_plan`**, признак
+``activated``) для **Telegram Stars** обнуляются **usage** за **текущий** календарный месяц (UTC) и
+проставляется ``users.subscription_period_end = now (UTC) + 30`` суток. Повтор того же
+``(provider, external_id)`` не вызывает ``apply_plan_change`` повторно. Другие способы оплаты
+(Stripe и т.д.) — отдельные тикеты.

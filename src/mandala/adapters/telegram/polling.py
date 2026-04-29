@@ -11,12 +11,14 @@ from typing import Any
 
 from sqlalchemy.engine import Engine
 
+from mandala.adapters.telegram.billing_updates import process_telegram_billing_update
 from mandala.adapters.telegram.bot_api import TelegramBotApiClient
 from mandala.adapters.telegram.inbound_map import telegram_update_to_inbound_event
 from mandala.adapters.telegram.outbound_send import deliver_outbound_messages
 from mandala.adapters.telegram.secrets import mask_bot_token
 from mandala.db.engine import create_engine_from_env
 from mandala.domain import handle_inbound
+from mandala.observability import op_format
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +49,27 @@ def process_telegram_update(
     api: TelegramBotApiClient,
 ) -> None:
     """Один ``update``: маппинг → транзакция БД → доставка исходящих."""
+    if process_telegram_billing_update(
+        update,
+        vertical_id=vertical_id,
+        engine=engine,
+        api=api,
+    ):
+        return
     event = telegram_update_to_inbound_event(update, vertical_id=vertical_id)
     if event is None:
         return
+    raw_uid = update.get("update_id")
+    upd_id = raw_uid if isinstance(raw_uid, int) else None
+    logger.info(
+        "funnel telegram_inbound %s",
+        op_format(
+            vertical_id=vertical_id,
+            channel="telegram",
+            stage="mapped",
+            update_id=upd_id,
+        ),
+    )
     raw = event.raw_ref or {}
     chat_id = raw.get("chat_id")
     if chat_id is None:
@@ -59,7 +79,12 @@ def process_telegram_update(
     with engine.begin() as conn:
         outbound = handle_inbound(event, conn)
 
-    deliver_outbound_messages(api, chat_id=int(chat_id), messages=outbound)
+    deliver_outbound_messages(
+        api,
+        chat_id=int(chat_id),
+        messages=outbound,
+        vertical_id=vertical_id,
+    )
 
 
 def run_polling_forever(

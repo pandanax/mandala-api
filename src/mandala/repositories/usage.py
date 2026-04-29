@@ -125,3 +125,28 @@ class UsageRepository:
             },
         ).first()
         return row is not None
+
+    def reset_counts_for_user_vertical_period(
+        self,
+        *,
+        user_id: UUID,
+        vertical_id: str,
+        billing_period: str,
+    ) -> None:
+        """Обнулить все счётчики за период (смена плана / апгрейд, тикет 19)."""
+        self._conn.execute(
+            text(
+                """
+                UPDATE usage_counters
+                SET count = 0
+                WHERE user_id = :user_id
+                  AND vertical_id = :vertical_id
+                  AND billing_period = :billing_period
+                """
+            ),
+            {
+                "user_id": user_id,
+                "vertical_id": vertical_id,
+                "billing_period": billing_period,
+            },
+        )

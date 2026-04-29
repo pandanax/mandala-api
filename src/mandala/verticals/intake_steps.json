@@ -1,0 +1,34 @@
+{
+  "astrology": [
+    {
+      "field_key": "birth_place",
+      "prompt": "Укажите город или населённый пункт рождения.",
+      "validator": { "kind": "birth_place" }
+    },
+    {
+      "field_key": "birth_time",
+      "prompt": "Во сколько вы родились? Укажите время как ЧЧ:ММ или напишите «не знаю».",
+      "validator": { "kind": "birth_time" }
+    }
+  ],
+  "therapy": [
+    {
+      "field_key": "main_concern",
+      "prompt": "Кратко опишите, с чем хотите поработать в первую очередь (тема запроса).",
+      "validator": {
+        "kind": "min_len",
+        "min_len": 10,
+        "label": "описание темы"
+      }
+    },
+    {
+      "field_key": "mood",
+      "prompt": "Как сейчас ваше настроение одним коротким ответом?",
+      "validator": {
+        "kind": "min_len",
+        "min_len": 3,
+        "label": "настроение"
+      }
+    }
+  ]
+}

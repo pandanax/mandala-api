@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
@@ -25,9 +26,12 @@ from uuid import UUID
 from sqlalchemy.engine import Connection
 
 from mandala.billing_period import current_billing_period
+from mandala.observability import op_format
 from mandala.repositories.plans import PlanLimitDTO, PlanLimitsRepository
 from mandala.repositories.usage import UsageRepository
 from mandala.repositories.users import UsersRepository
+
+logger = logging.getLogger(__name__)
 
 # Ресурсы — значения ``usage_counters.resource`` / ``plan_limits.resource``
 RESOURCE_TEXT_REPLY = "text_reply"
@@ -84,9 +88,31 @@ class QuotaService:
         users = UsersRepository(self._conn)
         plan_id = users.fetch_current_plan_id(user_id=user_id, vertical_id=vertical_id)
         if plan_id is None:
+            logger.info(
+                "funnel quota %s",
+                op_format(
+                    vertical_id=vertical_id,
+                    user_id=user_id,
+                    stage="can_consume",
+                    resource=resource,
+                    outcome="deny",
+                    reason="no_plan_for_user",
+                ),
+            )
             return False
         limit = self._resolve_limit(plan_id=plan_id, resource=resource)
         if limit is None:
+            logger.info(
+                "funnel quota %s",
+                op_format(
+                    vertical_id=vertical_id,
+                    user_id=user_id,
+                    stage="can_consume",
+                    resource=resource,
+                    outcome="deny",
+                    reason=REASON_NO_PLAN_LIMIT_ROW,
+                ),
+            )
             return False
         period_key = current_billing_period(now)
         usage = UsageRepository(self._conn)
@@ -96,7 +122,20 @@ class QuotaService:
             billing_period=period_key,
             resource=resource,
         )
-        return count < limit
+        if count >= limit:
+            logger.info(
+                "funnel quota %s",
+                op_format(
+                    vertical_id=vertical_id,
+                    user_id=user_id,
+                    stage="can_consume",
+                    resource=resource,
+                    outcome="deny",
+                    reason=REASON_LIMIT_EXCEEDED,
+                ),
+            )
+            return False
+        return True
 
     def consume(
         self,
@@ -114,10 +153,32 @@ class QuotaService:
         users = UsersRepository(self._conn)
         plan_id = users.fetch_current_plan_id(user_id=user_id, vertical_id=vertical_id)
         if plan_id is None:
+            logger.info(
+                "funnel quota %s",
+                op_format(
+                    vertical_id=vertical_id,
+                    user_id=user_id,
+                    stage="consume",
+                    resource=resource,
+                    outcome="deny",
+                    reason=REASON_USER_OR_VERTICAL_MISMATCH,
+                ),
+            )
             return QuotaConsumeResult(allowed=False, reason=REASON_USER_OR_VERTICAL_MISMATCH)
 
         limit = self._resolve_limit(plan_id=plan_id, resource=resource)
         if limit is None:
+            logger.info(
+                "funnel quota %s",
+                op_format(
+                    vertical_id=vertical_id,
+                    user_id=user_id,
+                    stage="consume",
+                    resource=resource,
+                    outcome="deny",
+                    reason=REASON_NO_PLAN_LIMIT_ROW,
+                ),
+            )
             return QuotaConsumeResult(allowed=False, reason=REASON_NO_PLAN_LIMIT_ROW)
 
         period_key = current_billing_period(now)
@@ -130,5 +191,26 @@ class QuotaService:
             limit=limit,
         )
         if ok:
+            logger.debug(
+                "funnel quota %s",
+                op_format(
+                    vertical_id=vertical_id,
+                    user_id=user_id,
+                    stage="consume",
+                    resource=resource,
+                    outcome="allow",
+                ),
+            )
             return QuotaConsumeResult(allowed=True, reason=None)
+        logger.info(
+            "funnel quota %s",
+            op_format(
+                vertical_id=vertical_id,
+                user_id=user_id,
+                stage="consume",
+                resource=resource,
+                outcome="deny",
+                reason=REASON_LIMIT_EXCEEDED,
+            ),
+        )
         return QuotaConsumeResult(allowed=False, reason=REASON_LIMIT_EXCEEDED)

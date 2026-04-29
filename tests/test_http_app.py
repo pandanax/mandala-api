@@ -221,6 +221,72 @@ def test_webhook_unprocessable_update(client: TestClient) -> None:
     assert response.json()["status"] == "ignored"
 
 
+def test_web_chat_success_body_vertical(client: TestClient) -> None:
+    """Web webhook: vertical_id в теле, тот же handle_inbound."""
+    with (
+        patch("mandala.http.web_chat.get_engine") as mock_get_engine,
+        patch("mandala.http.web_chat.handle_inbound") as mock_handle,
+    ):
+        mock_engine = Mock()
+        mock_conn = Mock()
+        mock_engine.begin.return_value.__enter__ = Mock(return_value=mock_conn)
+        mock_engine.begin.return_value.__exit__ = Mock(return_value=None)
+        mock_get_engine.return_value = mock_engine
+        mock_handle.return_value = [OutboundMessage(text="Ответ web")]
+
+        response = client.post(
+            "/webhooks/web",
+            json={"text": "Привет", "vertical_id": "astrology"},
+            headers={"X-External-User-Id": "web-user-1"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "messages" in data
+    assert len(data["messages"]) == 1
+    assert data["messages"][0]["text"] == "Ответ web"
+    mock_handle.assert_called_once()
+    event = mock_handle.call_args[0][0]
+    assert event.vertical_id == "astrology"
+    assert event.channel == "web"
+    assert event.external_user_id == "web-user-1"
+    assert event.text == "Привет"
+
+
+def test_web_chat_success_header_vertical(client: TestClient) -> None:
+    """vertical_id только из X-Vertical-Id."""
+    with (
+        patch("mandala.http.web_chat.get_engine") as mock_get_engine,
+        patch("mandala.http.web_chat.handle_inbound") as mock_handle,
+    ):
+        mock_engine = Mock()
+        mock_conn = Mock()
+        mock_engine.begin.return_value.__enter__ = Mock(return_value=mock_conn)
+        mock_engine.begin.return_value.__exit__ = Mock(return_value=None)
+        mock_get_engine.return_value = mock_engine
+        mock_handle.return_value = []
+
+        response = client.post(
+            "/webhooks/web",
+            json={"text": "x"},
+            headers={"X-Vertical-Id": "therapy", "X-External-User-Id": "u-2"},
+        )
+
+    assert response.status_code == 200
+    assert mock_handle.call_args[0][0].vertical_id == "therapy"
+
+
+def test_web_chat_missing_vertical_and_external(client: TestClient) -> None:
+    """422 без vertical_id и без X-External-User-Id."""
+    r1 = client.post("/webhooks/web", json={"text": "x"}, headers={"X-External-User-Id": "u"})
+    assert r1.status_code == 422
+    r2 = client.post(
+        "/webhooks/web",
+        json={"text": "x", "vertical_id": "astrology"},
+    )
+    assert r2.status_code == 422
+
+
 def test_webhook_wrong_vertical(client: TestClient) -> None:
     """Тест webhook для неподдерживаемой вертикали (токен только для astrology)."""
     env_vars = {
