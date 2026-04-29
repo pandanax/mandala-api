@@ -1,0 +1,80 @@
+Привет! Ты эксперт в IT, разработчик и администратор. У меня есть несколько вопросов
+
+
+локально запустил скрипт  app % ./start-dev.sh
+вижу поднялся клиент http://localhost:5173/
+в интерефейсе нажал "Сходить в API"
+увидел ответ:
+Ответ API:
+{
+  "status": "OK",
+  "timestamp": "2025-06-21T16:02:45.245Z"
+}
+
+-----
+
+у меня есть пара машинок в yc контейнерного типа. Как ты видишь из моих деплой файлов для git actions я билдю контейнеры и гружу их на машинки
+
+pandanax@pandanax-osx ~ % yc compute instances list --folder-id b1glvms3u8frdm5oat0f
++----------------------+-----------------------------------------+---------------+---------+----------------+-------------+
+|          ID          |                  NAME                   |    ZONE ID    | STATUS  |  EXTERNAL IP   | INTERNAL IP |
++----------------------+-----------------------------------------+---------------+---------+----------------+-------------+
+| fv4rccfrcslqbi9kerfm | compute-vm-2-2-20-ssd-1748732567643-api | ru-central1-d | RUNNING | 51.250.113.105 | 10.131.0.24 |
+| fv4vvgntqqqrh1kmoift | mandala-vm-app                          | ru-central1-d | RUNNING | 51.250.113.187 | 10.131.0.13 |
++----------------------+-----------------------------------------+---------------+---------+----------------+-------------+
+
+------
+
+Есть и БД pandanax@pandanax-osx ~ % yc postgres clusters list --folder-id b1glvms3u8frdm5oat0f
++----------------------+--------------------+---------------------+--------+---------+
+|          ID          |        NAME        |     CREATED AT      | HEALTH | STATUS  |
++----------------------+--------------------+---------------------+--------+---------+
+| c9qd6qbtoacro03le8p8 | postgresql-mandala | 2025-05-16 19:38:47 | ALIVE  | RUNNING |
++----------------------+--------------------+---------------------+--------+---------+
+
+yc postgres databases list --cluster-id $CLUSTER_ID
++------------+----------------------+--------------+------------+---------+------------+-------------------+
+|    NAME    |      CLUSTER ID      |    OWNER     | LC COLLATE | LC TYPE | EXTENSIONS | TEMPLATE DATABASE |
++------------+----------------------+--------------+------------+---------+------------+-------------------+
+| mandala_db | c9qd6qbtoacro03le8p8 | mandala_user | C          | C       |            |                   |
++------------+----------------------+--------------+------------+---------+------------+-------------------+
+
+pandanax@pandanax-osx ~ % yc postgres users list --cluster-id $CLUSTER_ID
++--------------+-------------+----------------------+------------+
+|     NAME     | PERMISSIONS |    CONNECTION ID     | CONN LIMIT |
++--------------+-------------+----------------------+------------+
+| mandala_user | mandala_db  | a59c7h7ssedaoo7uu9ku |         50 |
++--------------+-------------+----------------------+------------+
+
+-----
+
+Также настроены зоны для моих доменов mandala-app.ru и mandala-app.online
+
+pandanax@pandanax-osx ~ % yc dns zones list --folder-id $FOLDER_ID
++----------------------+--------------------------------------------+---------------------+------------------------------+--------------------------------+
+|          ID          |                    NAME                    |        ZONE         |          VISIBILITY          |          DESCRIPTION           |
++----------------------+--------------------------------------------+---------------------+------------------------------+--------------------------------+
+| dns19ft3lhes3m579cm5 | auto-enpb3gifadh7t5t9bvcm-internal_        | internal.           | PRIVATE enpb3gifadh7t5t9bvcm | Automatically created DNS      |
+|                      |                                            |                     |                              | zone "internal." for network   |
+|                      |                                            |                     |                              | (enpb3gifadh7t5t9bvcm)         |
+| dns1j3im4nv6aktnij11 | auto-enpb3gifadh7t5t9bvcm-10_in-addr_arpa_ | 10.in-addr.arpa.    | PRIVATE enpb3gifadh7t5t9bvcm | Automatically created DNS zone |
+|                      |                                            |                     |                              | "10.in-addr.arpa." for network |
+|                      |                                            |                     |                              | (enpb3gifadh7t5t9bvcm)         |
+| dns1kisfv9bkl962ku95 | auto-enpb3gifadh7t5t9bvcm-_                |                   . | PRIVATE enpb3gifadh7t5t9bvcm | Automatically created          |
+|                      |                                            |                     |                              | DNS zone "." for network       |
+|                      |                                            |                     |                              | (enpb3gifadh7t5t9bvcm)         |
+| dns6jlnvepl5lvqtrphv | mandala                                    | mandala-app.ru.     | PUBLIC                       |                                |
+| dnsffgjctg02traldqtt | mandala-app-online                         | mandala-app.online. | PUBLIC                       |                                |
++----------------------+--------------------------------------------+---------------------+------------------------------+--------------------------------+
+
+-----
+
+Когда я захожу на https://mandala-app.ru/ я вижу интефейс такой же как и локально. Но когда жму по кнопке сходить в апи то вижу
+Ответ API:
+{
+  "error": "Не удалось получить данные"
+}
+
+а в браузере в консоли index-8wAIfvaY.js:49 Ошибка при запросе к API: TypeError: Failed to fetch
+
+Твоя задача пошагово, задавая мне вопрос за вопросом, помочь мне отдебажиться, поехали

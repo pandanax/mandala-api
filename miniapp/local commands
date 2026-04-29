@@ -1,0 +1,5 @@
+### выполнить что-то в контейнере
+podman-compose -f docker-compose-dev.yml exec api npm ci
+
+### выполнить миграцию
+podman-compose -f docker-compose-dev.yml exec api npx prisma migrate dev --name "Первая миграция после добавления"

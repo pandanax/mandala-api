@@ -1,0 +1,27 @@
+# Локальный PostgreSQL для разработки (тикет 2).
+# Запуск: podman compose up -d (см. README).
+# Образ: docker.io/library/... — реестр OCI, подходит для Podman без Docker Desktop.
+# Переменные — из .env (см. .env.example); пароли в git не коммитить.
+
+services:
+  postgres:
+    image: docker.io/library/postgres:16.6-alpine
+    container_name: mandala-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mandala}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-mandala}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - mandala_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mandala} -d ${POSTGRES_DB:-mandala}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  mandala_pg_data:

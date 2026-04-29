@@ -1,0 +1,18 @@
+## НУЖНО ДОБАВИТЬ РАЗРЕШЕНИЕ НА ПУЛЛ С IP !!! иначе машинка не сможет скачивать с репы
+yc container registry add-ip-permissions \
+  --id crp48jn0d8i97rou3u0r \
+  --pull 51.250.113.105
+
+## логи докера
+```
+sudo cat /var/log/syslog > dockerlogs.txt
+```
+
+## Метаданные
+
+```
+curl -s -H Metadata-Flavor:Google 169.254.169.254/computeMetadata/v1/instance/?recursive=true | jq -r '.attributes' > metadata.txt
+```
+
+### журнал
+sudo journalctl -u yc-container-daemon -n 100
