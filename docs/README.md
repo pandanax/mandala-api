@@ -1,11 +1,15 @@
-# Документация проекта: агент «личная мандала»
+# Документация Mandala (MVP)
 
-Много каналов (Telegram → позже Web, CLI и др.), память и профиль в БД, база знаний (RAG), маршрутизация по разным LLM/API для текста и картинок, тарифы с настраиваемыми лимитами, платежи (старт — Telegram Stars, с заделом под другие провайдеры).
+Несколько каналов (Telegram, HTTP Web API), профиль и память в **PostgreSQL**, опционально **RAG** (Qdrant), разные **LLM** для текста и картинок, тарифы с лимитами, платежи (**Telegram Stars** и задел под другие провайдеры).
+
+**С чего начать после клонирования репозитория:** [getting-started.md](getting-started.md) (установка, **`.env`**, миграции, запуск, прод-checklist). **Что дальше по продукту:** [roadmap.md](roadmap.md).
 
 ## Оглавление
 
 | Файл | Содержание |
 |------|------------|
+| [getting-started.md](getting-started.md) | Установка, переменные окружения, первый запуск |
+| [roadmap.md](roadmap.md) | План развития после MVP |
 | [product.md](product.md) | Продукт, пользовательский сценарий, границы ответственности |
 | [architecture.md](architecture.md) | Слои системы, потоки данных, MVP vs расширения |
 | [data-model.md](data-model.md) | Сущности, таблицы БД, связь каналов с пользователем |
@@ -13,9 +17,8 @@
 | [billing.md](billing.md) | Абстракция биллинга, Telegram Stars, будущие провайдеры |
 | [quotas-and-plans.md](quotas-and-plans.md) | Планы, лимиты (в т.ч. 0 картинок), учёт usage |
 | [agent.md](agent.md) | Оркестрация (граф), роутинг моделей, RAG, память диалога |
-| [implementation-plan.md](implementation-plan.md) | Пошаговые тикеты для реализации (для ИИ-агента и команды) |
 | [deployment-yandex-cloud.md](deployment-yandex-cloud.md) | Деплой в Yandex Cloud: ресурсы, сеть, БД, Docker, Terraform, обновления |
-| [mvp-first-run.md](mvp-first-run.md) | Чеклист первого MVP: куда вписать Telegram и DeepSeek, webhook, проверки |
+| [implementation-plan.md](implementation-plan.md) | Исторический поэтапный план с тикетами (контекст для команды и агентов) |
 
 ## Принципы
 

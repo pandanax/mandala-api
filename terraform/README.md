@@ -1,6 +1,6 @@
-# Terraform (тикет 23)
+# Terraform (DNS в Yandex Cloud)
 
-Минимальный модуль: **одна A-запись** в существующей публичной DNS-зоне (например **`api`** → публичный IP ВМ с Nginx). Сеть, ВМ и Managed PostgreSQL **не** создаются — см. целевую схему в **`docs/implementation-plan.md`** (тикет 23).
+Минимальный модуль: **одна A-запись** в существующей публичной DNS-зоне (например **`api`** → публичный IP ВМ с Nginx). Сеть, ВМ и Managed PostgreSQL **не** создаются здесь — фактическая схема в **`docs/deployment-yandex-cloud.md`**, архитектура — **`docs/architecture.md`**. Исторический поэтапный план — **`docs/implementation-plan.md`**.
 
 ## Подготовка
 
@@ -23,7 +23,7 @@ terraform plan
 terraform apply
 ```
 
-**State** по умолчанию локальный (`terraform.tfstate` — в **`.gitignore`**). Удалённый backend в Object Storage — **тикет 24**.
+**State** по умолчанию локальный (`terraform.tfstate` — в **`.gitignore`**). Удалённый backend в Object Storage — в **[docs/roadmap.md](../docs/roadmap.md)**.
 
 ## Бэкапы Managed PostgreSQL
 

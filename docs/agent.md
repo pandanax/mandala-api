@@ -34,7 +34,7 @@
 - По типу задачи: **диалог** → текстовая модель, **изображение** → image API (**тикеты 14–15**: **`ImageGenerationClient`**, запись **`messages`** / **`generated_artifacts`**).
 - Перед вызовом **image** — проверка квоты `image_generation` и что `limit_per_period` > 0 в **плане пользователя этой вертикали** (при **0** клиент генерации **не вызывается**).
 
-Реализация: интерфейсы **`TextCompletionClient`**, **`ImageGenerationClient`** с конкретными бэкендами; дефолтные модели могут переопределяться конфигом **`vertical_id`**. В коде: пакет **`mandala.llm`** (`OpenAICompatibleTextClient`, **`OpenAICompatibleImageClient`**, **`StubImageGenerationClient`**, **`LlmConfigProvider`**, **`LlmProviderError`** — см. тикеты 11, 14–15 в `implementation-plan.md`).
+Реализация: интерфейсы **`TextCompletionClient`**, **`ImageGenerationClient`** с конкретными бэкендами; дефолтные модели могут переопределяться конфигом **`vertical_id`**. В коде: пакет **`mandala.llm`** (`OpenAICompatibleTextClient`, **`OpenAICompatibleImageClient`**, **`StubImageGenerationClient`**, **`LlmConfigProvider`**, **`LlmProviderError`**). Исторический разрез по тикетам — [implementation-plan.md](implementation-plan.md).
 
 ## База знаний (RAG)
 

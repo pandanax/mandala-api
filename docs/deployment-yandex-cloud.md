@@ -1,6 +1,6 @@
 # Деплой Mandala в Yandex Cloud (фактическая схема MVP)
 
-Документ фиксирует **текущее** состояние интеграции с YC по тикету 23: что где лежит, как устроено, как обновлять. Общая продуктовая архитектура — в [architecture.md](architecture.md); пошаговый чеклист «поднять первый MVP» — в [mvp-first-run.md](mvp-first-run.md).
+Документ фиксирует **текущее** состояние интеграции с Yandex Cloud: что где лежит, как устроено, как обновлять. Общая архитектура — в [architecture.md](architecture.md); установка, env, первый запуск и чеклист после инсталляции — в [getting-started.md](getting-started.md).
 
 Секреты (токены, пароли БД) **не** описываются здесь в открытом виде — только **имена переменных** и **файлы**, куда их класть.
 
@@ -94,12 +94,12 @@
 
 ## 5. Как деплоится Mandala (два контура)
 
-Согласно [implementation-plan.md](implementation-plan.md) (тикет 23):
+Типовой контур (инфра редко / образ и сервис чаще):
 
 1. **Инфра редко** — Terraform в **`terraform/`** (сейчас по сути только DNS; state локально, в git не коммитить **`terraform.tfstate`**, **`terraform.tfvars`**).
 2. **Образ / сервис часто** — сборка образа (**`podman`/`docker` build** с **`MANDALA_PLATFORM=linux/amd64`** для типичной ВМ YC), передача на ВМ (**`docker load`** или registry), **`docker restart mandala-http`** или пересоздание контейнера, при смене схемы — **`docker run … python -m alembic upgrade head`** (см. **`scripts/deploy/README.md`**).
 
-**CI (GitHub Actions)** в этот репозиторий **не** выкладывает в YC — только проверки кода (тикет 22).
+**CI (GitHub Actions)** в этот репозиторий **не** выкладывает в YC — только проверки кода.
 
 ---
 
@@ -142,7 +142,7 @@
 - Каталог **`terraform/`**: **`main.tf`**, **`variables.tf`**, **`outputs.tf`**, **`versions.tf`**.
 - **`terraform.tfvars.example`** — образец; реальный **`terraform.tfvars`** — только локально (**`.gitignore`**).
 - Провайдер: **`yandex-cloud/yandex`**, версия зафиксирована в **`.terraform.lock.hcl`** (его **нужно** коммитить в git).
-- **Remote state в Object Storage** — запланировано в тикете 24 ([implementation-plan.md](implementation-plan.md)).
+- **Remote state в Object Storage** — в планах развития ([roadmap.md](roadmap.md)).
 
 ---
 

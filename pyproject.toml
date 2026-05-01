@@ -1,7 +1,7 @@
 [project]
 name = "mandala"
 version = "0.1.0"
-description = "Бэкенд Mandala — см. docs/architecture.md и docs/implementation-plan.md"
+description = "Бэкенд Mandala — см. docs/architecture.md и docs/getting-started.md"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

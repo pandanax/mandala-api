@@ -1,8 +1,8 @@
-# Деплой MVP Mandala (тикет 23)
+# Деплой образа Mandala
 
-Целевая схема зафиксирована в **`docs/implementation-plan.md`** (тикет 23): контейнер на **той же ВМ**, что n8n, **`mandala.http`** на **127.0.0.1:8000**, наружу только **HTTPS через Nginx**, отдельная БД/пользователь в **Managed PostgreSQL**, DNS **`api.mandala-app.online`** (или другое имя из **`terraform.tfvars`**).
+Целевая схема (ВМ, Nginx, Managed PostgreSQL, контейнер **`mandala-http`**) — **`docs/deployment-yandex-cloud.md`**. Ниже — сборка образа, env на ВМ, типовые команды Docker.
 
-**GitHub Actions не деплоит** в Yandex — только проверки качества (тикет 22). Выкладка — вручную или скриптами отсюда.
+**GitHub Actions** в этот репозиторий **не** выкладывает в Yandex — только проверки кода. Выкладка — вручную или скриптами отсюда.
 
 ## 1. Образ приложения
 
