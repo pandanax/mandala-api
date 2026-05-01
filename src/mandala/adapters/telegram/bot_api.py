@@ -130,16 +130,24 @@ class TelegramBotApiClient:
             return []
         return cast(list[dict[str, Any]], raw)
 
+    def send_chat_action(self, *, chat_id: int, action: str = "typing") -> bool:
+        """``sendChatAction`` — индикатор набора текста и др. (см. Bot API)."""
+        raw = self.call("sendChatAction", {"chat_id": chat_id, "action": action})
+        return bool(raw)
+
     def send_message(
         self,
         *,
         chat_id: int,
         text: str,
         reply_markup: dict[str, Any] | None = None,
+        parse_mode: str | None = None,
     ) -> dict[str, Any]:
         p: dict[str, Any] = {"chat_id": chat_id, "text": text}
         if reply_markup is not None:
             p["reply_markup"] = reply_markup
+        if parse_mode is not None:
+            p["parse_mode"] = parse_mode
         out = self.call("sendMessage", p)
         assert isinstance(out, dict)
         return out
@@ -151,12 +159,15 @@ class TelegramBotApiClient:
         photo: str,
         caption: str | None = None,
         reply_markup: dict[str, Any] | None = None,
+        parse_mode: str | None = None,
     ) -> dict[str, Any]:
         p: dict[str, Any] = {"chat_id": chat_id, "photo": photo}
         if caption is not None:
             p["caption"] = caption
         if reply_markup is not None:
             p["reply_markup"] = reply_markup
+        if parse_mode is not None:
+            p["parse_mode"] = parse_mode
         out = self.call("sendPhoto", p)
         assert isinstance(out, dict)
         return out

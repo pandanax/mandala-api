@@ -112,12 +112,18 @@ def test_deliver_outbound_text_and_photo() -> None:
     deliver_outbound_messages(api, chat_id=1, messages=msgs)
     assert api.send_message.call_count == 1
     assert api.send_photo.call_count == 1
-    api.send_message.assert_called_with(chat_id=1, text="a", reply_markup=None)
+    api.send_message.assert_called_with(
+        chat_id=1,
+        text="a",
+        reply_markup=None,
+        parse_mode="HTML",
+    )
     api.send_photo.assert_called_with(
         chat_id=1,
         photo="file_xyz",
         caption="cap",
         reply_markup=None,
+        parse_mode="HTML",
     )
 
 
