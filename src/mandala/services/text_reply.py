@@ -7,6 +7,8 @@
 Память диалога (тикет 17): в запрос к модели попадают последние
 :const:`TEXT_REPLY_CONTEXT_MESSAGES` строк из ``messages`` (после записи текущего
 входа пользователя), в хронологическом порядке. Порядок сегментов контекста:
+блок текущей даты/времени
+(:func:`mandala.services.llm_time_context.build_llm_time_context_block`) →
 системный промпт вертикали → блок KB (RAG, тикет 16) → опциональная сводка
 ``scenario_state["dialog_summary"]`` (в том же ``system``) → история ролей
 ``user``/``assistant`` с непустым ``content_text`` (последняя реплика — текущий
@@ -33,6 +35,7 @@ from mandala.rag.prompt_injection import build_kb_context_block
 from mandala.rag.protocol import KbSearchPort
 from mandala.repositories.messages import MessageDTO, MessageRepository
 from mandala.repositories.profiles import ProfileRepository
+from mandala.services.llm_time_context import build_llm_time_context_block
 from mandala.services.quota import RESOURCE_TEXT_REPLY, QuotaService
 from mandala.verticals import get_vertical_system_prompt
 from mandala.verticals.client_knowledge import (
@@ -134,6 +137,7 @@ def handle_inbound_text_llm(
 
     search_port = kb_search if kb_search is not None else create_kb_search_from_env()
     system_prompt = get_vertical_system_prompt(event.vertical_id)
+    system_prompt = f"{build_llm_time_context_block()}\n\n{system_prompt}"
     card = dict(agent_card or {})
     if event.vertical_id.strip() == "astrology":
         lines: list[str] = []
