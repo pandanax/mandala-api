@@ -1,8 +1,8 @@
 {
   "astrology": {
-    "model": "gpt-4o"
+    "model": "deepseek-chat"
   },
   "therapy": {
-    "model": "gpt-4o-mini"
+    "model": "deepseek-chat"
   }
 }

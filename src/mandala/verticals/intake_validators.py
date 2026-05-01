@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping
 Validator = Callable[[str], str | None]
 
 _TIME_RE = re.compile(r"^(\d{1,2})[:.](\d{2})$")
+_DATE_RE = re.compile(r"^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})$")
 
 
 def _validate_min_len(min_len: int, label: str) -> Validator:
@@ -38,6 +39,36 @@ def _validate_birth_place(raw: str) -> str | None:
     if t.startswith("/"):
         return "команды вида /start не подходят — напишите название города текстом"
     return _validate_min_len(2, "место рождения")(raw)
+
+
+def _validate_full_name(raw: str) -> str | None:
+    t = raw.strip()
+    if t.startswith("/"):
+        return "команды вида /start не подходят — напишите имя текстом"
+    if len(t) < 3:
+        return "напишите имя и фамилию (можно с отчеством), минимум 2 слова"
+    parts = t.split()
+    if len(parts) < 2:
+        return "напишите имя и фамилию (минимум 2 слова), можно добавить отчество"
+    return None
+
+
+def _validate_birth_date(raw: str) -> str | None:
+    t = raw.strip()
+    m = _DATE_RE.match(t)
+    if not m:
+        return "укажите дату рождения как ДД.ММ.ГГГГ (например 17.03.1992)"
+    d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if y < 100:
+        # двузначные годы трактуем грубо: <30 → 20xx, иначе 19xx
+        y = 2000 + y if y < 30 else 1900 + y
+    if not (1 <= d <= 31):
+        return "день должен быть от 1 до 31"
+    if not (1 <= mo <= 12):
+        return "месяц должен быть от 1 до 12"
+    if not (1900 <= y <= 2100):
+        return "год выглядит некорректно — укажите четыре цифры (например 1992)"
+    return None
 
 
 def validator_from_spec(spec: object) -> Validator:
@@ -71,6 +102,12 @@ def validator_from_spec(spec: object) -> Validator:
 
     if kind == "birth_time":
         return _validate_birth_time
+
+    if kind == "full_name":
+        return _validate_full_name
+
+    if kind == "birth_date":
+        return _validate_birth_date
 
     msg = f"unknown validator kind: {kind!r}"
     raise ValueError(msg)

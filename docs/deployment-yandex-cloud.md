@@ -25,7 +25,7 @@
 - **Имя:** `n8n-server` (как в Terraform/истории n8n).
 - **Назначение:** хост для **Docker Compose** (n8n + **Nginx** + **certbot**) и отдельного контейнера **`mandala-http`** (образ Mandala).
 - **Сеть:** подсеть **`n8n-subnet`** (частный диапазон **`10.128.0.0/24`**), публичный **one-to-one NAT** (внешний IPv4 у ВМ — смотри `yc compute instance get --name n8n-server`).
-- **SSH:** пользователь **`ubuntu`** (как принято в образе), ключ с машины разработчика:  
+- **SSH:** пользователь **`ubuntu`** (как принято в образе), ключ с машины разработчика:
   `ssh ubuntu@<публичный-IP>`
 - **Security group на ВМ:** вход **22, 80, 443** (приложение Mandala **не** слушает публично **8000** — только через Nginx на **443**).
 
@@ -42,18 +42,18 @@
 
 - Пользователь БД: **`mandala_app`**.
 - База данных: **`mandala`** (владелец — **`mandala_app`**).
-- Создание через CLI:  
-  `yc managed-postgresql user create …`,  
-  `yc managed-postgresql database create mandala --owner mandala_app …`  
+- Создание через CLI:
+  `yc managed-postgresql user create …`,
+  `yc managed-postgresql database create mandala --owner mandala_app …`
   (точные флаги — `yc managed-postgresql user create --help`).
 
-Строка **`DATABASE_URL`** для приложения (формат как в коде — `postgresql://…`, движок сам переводит в `postgresql+psycopg://`):  
+Строка **`DATABASE_URL`** для приложения (формат как в коде — `postgresql://…`, движок сам переводит в `postgresql+psycopg://`):
 пользователь, пароль, хост, порт **6432**, имя БД **`mandala`**, query **`sslmode=require`**.
 
 ### 2.3. DNS
 
 - Публичная зона **`mandala-app.online`** (id зоны — `yc dns zone list`).
-- Запись **`api`** (A на публичный IP ВМ) создаётся **Terraform** из репозитория Mandala (`terraform/`, ресурс **`yandex_dns_recordset`**).  
+- Запись **`api`** (A на публичный IP ВМ) создаётся **Terraform** из репозитория Mandala (`terraform/`, ресурс **`yandex_dns_recordset`**).
   Локально перед `apply`: **`export YC_TOKEN=$(yc iam create-token)`** (краткоживущий токен).
 
 ### 2.4. TLS
@@ -119,15 +119,15 @@
 
 1. Собрать образ локально: **`bash scripts/deploy/build_image.sh`** (при необходимости **`MANDALA_IMAGE`**, **`MANDALA_PLATFORM`**).
 2. **`podman save … | ssh ubuntu@<IP> docker load`** (или свой registry + **`docker pull`**).
-3. На ВМ: при необходимости миграции —  
-   `docker run --rm --env-file /opt/mandala/env <образ> python -m alembic upgrade head`
-4. Перезапуск:  
-   `docker stop mandala-http && docker rm mandala-http`  
-   затем снова **`docker run -d …`** с теми же флагами, что в **`scripts/deploy/README.md`** (**`HOST=0.0.0.0`**, **`-p 8000:8000`**, **`--env-file /opt/mandala/env`**).
+3. На ВМ: рестарт скриптом, при необходимости с миграциями —
+   `sudo RUN_MIGRATIONS=1 bash /opt/mandala/restart_app.sh`
+   (скрипт — **[scripts/deploy/restart_app.sh](../scripts/deploy/restart_app.sh)**, см. также §11 ниже).
+
+⚠️ **Не использовать `docker restart mandala-http`** — он **не** перечитывает `--env-file`. После правки `/opt/mandala/env` контейнер обязательно пересоздавать (`stop` + `rm` + `run`). Скрипт делает это сам.
 
 ### 7.2. Обновить Nginx / TLS
 
-- Правки только в **`/opt/n8n/nginx/conf.d/`** на ВМ, затем:  
+- Правки только в **`/opt/n8n/nginx/conf.d/`** на ВМ, затем:
   `docker exec n8n-nginx nginx -t && docker exec n8n-nginx nginx -s reload`
 - Новый домен — отдельный **`certbot certonly`** (как в **`scripts/deploy/README.md`**, с **`--entrypoint ''`** если в compose переопределён entrypoint).
 
@@ -168,3 +168,114 @@ yc dns zone list
 - [CLI](https://yandex.cloud/ru/docs/cli/quickstart)
 - [Подключение к Managed PostgreSQL](https://yandex.cloud/ru/docs/managed-postgresql/operations/connect)
 - [Бэкапы Managed PostgreSQL](https://yandex.cloud/ru/docs/managed-postgresql/concepts/backup)
+
+---
+
+## 11. SSH и рестарт приложения
+
+### 11.1. Подключение по SSH
+
+Самый простой путь — через DNS, который уже подведён Terraform’ом к публичному IP ВМ:
+
+```bash
+ssh ubuntu@api.mandala-app.online
+```
+
+Альтернативы:
+
+```bash
+# через явный IP, полученный из YC CLI
+ssh ubuntu@$(yc compute instance get --name n8n-server --format json \
+  | jq -r '.network_interfaces[0].primary_v4_address.one_to_one_nat.address')
+
+# или вручную
+yc compute instance list   # столбец EXTERNAL IP
+ssh ubuntu@<IP-из-вывода>
+
+# с явным ключом
+ssh -i ~/.ssh/<твой-ключ> ubuntu@api.mandala-app.online
+```
+
+При первом подключении к новому хосту — `-o StrictHostKeyChecking=accept-new`.
+SSH-проброс порта (если хочешь дернуть `:8000` локально, минуя Nginx):
+
+```bash
+ssh -L 8000:127.0.0.1:8000 ubuntu@api.mandala-app.online
+```
+
+### 11.2. Правка `/opt/mandala/env`
+
+Файл с переменными окружения (см. **[getting-started.md §5](getting-started.md)** и **`.env.example`**) лежит на ВМ:
+
+```bash
+sudo nano /opt/mandala/env       # права 600, в git не коммитится
+```
+
+Минимальный набор для **MVP**: `DATABASE_URL`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_VERTICAL_ID`, `TELEGRAM_WEBHOOK_SECRET`. Полный список — в **[`.env.example`](../.env.example)**.
+
+### 11.3. Рестарт после правки env
+
+⚠️ **`docker restart mandala-http` НЕ перечитывает `--env-file`**.
+После любого изменения `/opt/mandala/env` контейнер нужно **пересоздать**:
+
+```bash
+# на ВМ — одной командой:
+sudo bash /opt/mandala/restart_app.sh
+
+# с миграциями (если деплоится новая схема БД):
+sudo RUN_MIGRATIONS=1 bash /opt/mandala/restart_app.sh
+```
+
+Скрипт делает: `docker stop` + `docker rm` + `docker run -d … --env-file /opt/mandala/env -p 8000:8000 …` и ждёт `/health`. Источник — **[scripts/deploy/restart_app.sh](../scripts/deploy/restart_app.sh)**. Если правишь скрипт в репо — обнови и копию на ВМ:
+
+```bash
+scp scripts/deploy/restart_app.sh ubuntu@api.mandala-app.online:/tmp/
+ssh ubuntu@api.mandala-app.online \
+  'sudo install -m 0755 -o root -g root /tmp/restart_app.sh /opt/mandala/restart_app.sh'
+```
+
+### 11.4. Полезные оперативные команды
+
+```bash
+# логи приложения
+sudo docker logs mandala-http --tail 100 -f
+
+# health
+curl -sS https://api.mandala-app.online/health
+
+# что реально передано в процесс (имена переменных без значений)
+sudo docker exec mandala-http sh -c 'tr "\0" "\n" < /proc/1/environ' \
+  | sed -E 's/=.*/=***/'
+
+# логи nginx по нужному пути
+sudo docker logs n8n-nginx --tail 200 | grep webhooks/telegram
+```
+
+---
+
+## 12. Первый запуск MVP в проде (чеклист)
+
+После того как ВМ, Managed PostgreSQL, DNS, Nginx, TLS и контейнер `mandala-http` уже подняты (см. §1–§5 и **[scripts/deploy/README.md](../scripts/deploy/README.md)**), для запуска бота нужно только:
+
+1. **`ssh ubuntu@api.mandala-app.online`** (см. §11.1).
+2. Прописать в **`/opt/mandala/env`** переменные:
+   - **Telegram:** `TELEGRAM_BOT_TOKEN` (от `@BotFather`), `TELEGRAM_VERTICAL_ID` (slug из таблицы `agent_verticals`, по умолчанию `astrology` или `therapy`), `TELEGRAM_WEBHOOK_SECRET` (`openssl rand -hex 32`).
+   - **LLM:** `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` (для DeepSeek: `https://api.deepseek.com/v1`, ключ, `deepseek-chat`).
+3. **Пересоздать контейнер:** `sudo bash /opt/mandala/restart_app.sh` (см. §11.3).
+4. **Health-check:** `curl -sS https://api.mandala-app.online/health` → `{"status":"ok","database":"ok"}`.
+5. **Зарегистрировать webhook** (с любой машины):
+
+   ```bash
+   curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+     -H "Content-Type: application/json" \
+     -d "{
+       \"url\": \"https://api.mandala-app.online/webhooks/telegram/${TELEGRAM_VERTICAL_ID}\",
+       \"secret_token\": \"${TELEGRAM_WEBHOOK_SECRET}\",
+       \"drop_pending_updates\": true
+     }"
+   ```
+
+   Ожидаемо: `{"ok":true,"result":true,"description":"Webhook was set"}`.
+6. **Smoke-test:** в Telegram открыть бота и написать любое сообщение (или `/start`) — должна пойти анкета вертикали (см. **[agent.md](agent.md)** про intake).
+
+Типичные причины отказов и как смотреть — §11.4 и **[quotas-and-plans.md](quotas-and-plans.md)** (квота `text_reply` на free-плане).

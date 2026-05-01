@@ -118,3 +118,19 @@ class MessageRepository:
                 )
             )
         return out
+
+    def delete_for_user_vertical(self, *, user_id: UUID, vertical_id: str) -> int:
+        """Удалить все сообщения пользователя в указанной вертикали (для ``/reset``).
+
+        Возвращает количество удалённых строк.
+        """
+        res = self._conn.execute(
+            text(
+                """
+                DELETE FROM messages
+                WHERE user_id = :user_id AND vertical_id = :vertical_id
+                """
+            ),
+            {"user_id": user_id, "vertical_id": vertical_id},
+        )
+        return int(res.rowcount or 0)

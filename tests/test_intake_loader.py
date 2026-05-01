@@ -14,7 +14,12 @@ from mandala.verticals.intake_loader import bundled_intake_steps_path, load_inta
 def test_bundled_json_loads_astrology_and_therapy() -> None:
     reg = load_intake_steps_registry(path=bundled_intake_steps_path())
     assert "astrology" in reg and "therapy" in reg
-    assert [s.field_key for s in reg["astrology"]] == ["birth_place", "birth_time"]
+    assert [s.field_key for s in reg["astrology"]] == [
+        "full_name",
+        "birth_date",
+        "birth_place",
+        "birth_time",
+    ]
     assert [s.field_key for s in reg["therapy"]] == ["main_concern", "mood"]
 
 

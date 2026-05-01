@@ -44,6 +44,24 @@ docker run --rm --env-file /opt/mandala/env mandala:local python -m alembic upgr
 
 (Команда **`alembic`** в PATH внутри образа.)
 
+## 3.1. Полный деплой одной командой
+
+Для типового случая (правка кода → собрать → закатить на ВМ → перезапустить → smoke-check) есть скрипт-обёртка [`deploy.sh`](deploy.sh):
+
+```bash
+# с локальной машины из корня репозитория:
+bash scripts/deploy/deploy.sh                # тег по дате-времени
+bash scripts/deploy/deploy.sh ux-start3      # явный тег
+RUN_MIGRATIONS=1 bash scripts/deploy/deploy.sh   # с миграциями
+SSH_HOST=ubuntu@<VM> bash scripts/deploy/deploy.sh
+```
+
+Что делает: `build_image.sh` под `linux/amd64` → `podman save` → `scp` → на ВМ `docker load` + `restart_app.sh` → ждёт `/health`. Tar-файлы убирает сам.
+
+Требования:
+- на ВМ уже лежат `/opt/mandala/restart_app.sh` и `/opt/mandala/env`;
+- ssh-ключ настроен (без пароля).
+
 ## 4. Запуск контейнера (пример)
 
 ```bash
@@ -55,6 +73,25 @@ docker run -d --name mandala-http --restart unless-stopped \
 ```
 
 Если Nginx в Docker проксирует на **`172.18.0.1:8000`**, на хосте должен слушать порт **8000** (не только **127.0.0.1**), иначе с bridge не достучаться.
+
+### 4.1. Рестарт после правки `/opt/mandala/env`
+
+⚠️ `docker restart mandala-http` **не** перечитывает `--env-file`. Используй скрипт **[`restart_app.sh`](restart_app.sh)** — он делает `stop` + `rm` + `run` с актуальным env-file и ждёт `/health`:
+
+```bash
+# на ВМ (скрипт уже скопирован в /opt/mandala/):
+sudo bash /opt/mandala/restart_app.sh
+
+# с миграциями (если деплоится новая схема БД):
+sudo RUN_MIGRATIONS=1 bash /opt/mandala/restart_app.sh
+```
+
+Скопировать обновлённый скрипт на ВМ:
+
+```bash
+scp scripts/deploy/restart_app.sh ubuntu@<VM>:/tmp/
+ssh ubuntu@<VM> 'sudo install -m 0755 -o root -g root /tmp/restart_app.sh /opt/mandala/restart_app.sh'
+```
 
 ## 5. Nginx на той же ВМ (n8n + Docker)
 

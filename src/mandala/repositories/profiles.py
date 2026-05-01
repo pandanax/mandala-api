@@ -104,3 +104,23 @@ class ProfileRepository:
         if res.rowcount == 0:
             msg = "client_profiles: нет строки для user_id (вызовите ensure_row раньше)"
             raise RuntimeError(msg)
+
+    def reset_session(self, user_id: UUID) -> None:
+        """Полный сброс ``agent_card`` и ``scenario_state`` к ``{}`` (для ``/reset``).
+
+        В отличие от ``merge_*`` — заменяет, а не сливает, чтобы удалить ранее
+        накопленные ключи (имя, дата рождения, флаг ``intake_complete`` и т.п.).
+        Не сбрасывает ``display_name`` и не трогает связи с другими таблицами.
+        """
+        self._conn.execute(
+            text(
+                """
+                UPDATE client_profiles
+                SET agent_card = '{}'::jsonb,
+                    scenario_state = '{}'::jsonb,
+                    updated_at = now()
+                WHERE user_id = :user_id
+                """
+            ),
+            {"user_id": user_id},
+        )

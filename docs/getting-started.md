@@ -69,13 +69,14 @@ python -m mandala.adapters.telegram
 
 На ВМ (пример пути **`/opt/mandala/env`**) задаёшь те же переменные, что и в **`.env`**, плюс строка **`DATABASE_URL`** к Managed PostgreSQL (**`sslmode=require`**). Файл **не** в git, права **`chmod 600`**.
 
-После правок:
+⚠️ **`docker restart`** **не** перечитывает **`--env-file`** — после правок env контейнер нужно **пересоздавать**. Удобнее всего скриптом:
 
 ```bash
-docker restart mandala-http
+ssh ubuntu@<хост-ВМ>
+sudo bash /opt/mandala/restart_app.sh
 ```
 
-(или эквивалент для твоего способа запуска контейнера — см. **[scripts/deploy/README.md](../scripts/deploy/README.md)**.)
+Скрипт лежит в репозитории: **[scripts/deploy/restart_app.sh](../scripts/deploy/restart_app.sh)**. Он делает `docker stop` + `rm` + `run` с **`--env-file /opt/mandala/env`** и ждёт **`/health`**. Подробнее об операционке — **[deployment-yandex-cloud.md §11](deployment-yandex-cloud.md)** и **[scripts/deploy/README.md](../scripts/deploy/README.md)**.
 
 ---
 

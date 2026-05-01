@@ -7,6 +7,7 @@
 | Документ | Зачем |
 |----------|--------|
 | **[docs/getting-started.md](docs/getting-started.md)** | Установка, **`.env`**, Podman + Postgres, миграции, запуск HTTP/бота, прод-env, webhook, проверки |
+| **[docs/deployment-yandex-cloud.md](docs/deployment-yandex-cloud.md)** | Прод в YC: ресурсы, SSH, рестарт после правки env, первый запуск (§11–§12) |
 | **[docs/roadmap.md](docs/roadmap.md)** | План развития после MVP |
 | **[docs/README.md](docs/README.md)** | Оглавление доменной документации |
 

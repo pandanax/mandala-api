@@ -389,19 +389,20 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+deploy = [
+    { name = "alembic" },
+]
 dev = [
     { name = "alembic" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "ruff" },
 ]
-deploy = [
-    { name = "alembic" },
-]
 
 [package.metadata]
 requires-dist = [
-    { name = "alembic", marker = "extra == 'dev' or extra == 'deploy'", specifier = ">=1.14" },
+    { name = "alembic", marker = "extra == 'deploy'", specifier = ">=1.14" },
+    { name = "alembic", marker = "extra == 'dev'", specifier = ">=1.14" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },

@@ -1,6 +1,16 @@
 {
   "astrology": [
     {
+      "field_key": "full_name",
+      "prompt": "Как к вам обращаться? Напишите имя и фамилию (можно с отчеством).",
+      "validator": { "kind": "full_name" }
+    },
+    {
+      "field_key": "birth_date",
+      "prompt": "Укажите дату рождения в формате ДД.ММ.ГГГГ (например 17.03.1992).",
+      "validator": { "kind": "birth_date" }
+    },
+    {
       "field_key": "birth_place",
       "prompt": "Укажите город или населённый пункт рождения.",
       "validator": { "kind": "birth_place" }

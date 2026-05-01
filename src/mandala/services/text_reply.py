@@ -165,7 +165,7 @@ def handle_inbound_text_llm(
         reply = client.complete(chat, max_tokens=1024)
     except LlmProviderError as e:
         logger.warning(
-            "funnel llm %s status=%s",
+            "funnel llm %s status=%s detail=%r",
             op_format(
                 vertical_id=event.vertical_id,
                 user_id=user_id,
@@ -173,6 +173,7 @@ def handle_inbound_text_llm(
                 outcome="provider_error",
             ),
             e.status_code,
+            getattr(e, "provider_detail", None),
         )
         if owned:
             _close_client_if_any(client)
