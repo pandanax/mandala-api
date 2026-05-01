@@ -12,10 +12,10 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from mandala.adapters.telegram.billing_updates import process_telegram_billing_update
 from mandala.adapters.telegram.bot_api import TelegramBotApiClient
+from mandala.adapters.telegram.bot_token import get_bot_token_for_vertical
 from mandala.adapters.telegram.callback_ack import answer_callback_query_if_present
 from mandala.adapters.telegram.inbound_map import telegram_update_to_inbound_event
-from mandala.adapters.telegram.outbound_send import deliver_outbound_messages
-from mandala.domain.handler import handle_inbound
+from mandala.adapters.telegram.webhook_delivery import process_telegram_webhook_update
 from mandala.http.engine_access import get_engine
 from mandala.http.web_chat import router as web_chat_router
 from mandala.observability import op_format
@@ -82,9 +82,9 @@ def create_app() -> FastAPI:
                 op_format(vertical_id=vertical_id, stage="received", update_id=upd_id),
             )
 
-            engine = get_engine()
             if _telegram_update_is_billing(update_data):
-                bot_token = _get_bot_token_for_vertical(vertical_id)
+                engine = get_engine()
+                bot_token = get_bot_token_for_vertical(vertical_id)
                 if not bot_token:
                     logger.error("No bot token for vertical_id=%s (Stars / оплата)", vertical_id)
                     raise HTTPException(
@@ -98,44 +98,35 @@ def create_app() -> FastAPI:
                         api=api,
                     ):
                         return {"status": "ok"}
-            # Обычные апдейты: обрабатываем даже без токена (ответ в Telegram невозможен).
+
             event = telegram_update_to_inbound_event(update_data, vertical_id=vertical_id)
             if event is None:
-                logger.info(
-                    "funnel webhook %s",
-                    op_format(vertical_id=vertical_id, stage="ignored", update_id=upd_id),
-                )
+                cq = update_data.get("callback_query")
+                if isinstance(cq, dict):
+                    logger.error(
+                        "funnel webhook %s",
+                        op_format(
+                            vertical_id=vertical_id,
+                            stage="inbound_map_none_callback",
+                            update_id=upd_id,
+                            callback_query_id=cq.get("id"),
+                            has_message=cq.get("message") is not None,
+                            has_from=cq.get("from") is not None,
+                            data_preview=str(cq.get("data", ""))[:48],
+                        ),
+                    )
+                    bot_token = get_bot_token_for_vertical(vertical_id)
+                    if bot_token:
+                        with TelegramBotApiClient(bot_token) as api:
+                            answer_callback_query_if_present(api, update_data)
+                else:
+                    logger.info(
+                        "funnel webhook %s",
+                        op_format(vertical_id=vertical_id, stage="ignored", update_id=upd_id),
+                    )
                 return {"status": "ignored"}
 
-            with engine.begin() as conn:
-                outbound_messages = handle_inbound(event, conn)
-
-            bot_token = _get_bot_token_for_vertical(vertical_id)
-            if bot_token:
-                with TelegramBotApiClient(bot_token) as api:
-                    if (
-                        outbound_messages
-                        and event.raw_ref
-                        and event.raw_ref.get("chat_id") is not None
-                    ):
-                        deliver_outbound_messages(
-                            api,
-                            chat_id=int(event.raw_ref["chat_id"]),
-                            messages=outbound_messages,
-                            vertical_id=vertical_id,
-                        )
-                        logger.info(
-                            "funnel webhook %s",
-                            op_format(
-                                vertical_id=vertical_id,
-                                stage="delivered",
-                                n_messages=len(outbound_messages),
-                            ),
-                        )
-                    answer_callback_query_if_present(api, update_data)
-            elif outbound_messages and not bot_token:
-                logger.error("No bot token found for vertical_id=%s", vertical_id)
-
+            process_telegram_webhook_update(update_data, vertical_id=vertical_id)
             return {"status": "ok"}
 
         except Exception as e:
@@ -143,19 +134,3 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=500, detail="Webhook processing failed") from e
 
     return app
-
-
-def _get_bot_token_for_vertical(vertical_id: str) -> str | None:
-    """Получить токен бота для конкретной вертикали.
-
-    TODO: несколько токенов → вертикалей (таблица/конфиг) — вне scope тикета 10;
-    сейчас один ``TELEGRAM_BOT_TOKEN`` + совпадение ``vertical_id`` с ``TELEGRAM_VERTICAL_ID``.
-    """
-    # Пока проверяем, что запрошенная вертикаль соответствует настроенной
-    configured_vertical = os.environ.get("TELEGRAM_VERTICAL_ID")
-    if configured_vertical and configured_vertical == vertical_id:
-        return os.environ.get("TELEGRAM_BOT_TOKEN")
-
-    # TODO: запрос к БД/конфигу соответствия токен ↔ vertical_id (см. план, тикет 9+).
-    logger.warning("No bot token mapping found for vertical_id=%s", vertical_id)
-    return None

@@ -90,15 +90,24 @@ TELEGRAM_VERTICAL_ID=astrology
 TELEGRAM_WEBHOOK_SECRET=<случайная строка; в проде обязательно>
 ```
 
-**Webhook** (подставь свой хост вместо примера):
+**Webhook** (подставь свой хост вместо примера).
+
+Если в **`setWebhook`** задано **`allowed_updates": ["message"]`**, Telegram **не шлёт** **`callback_query`** — inline‑кнопки не вызывают ваш backend (в логах Mandala нет новых webhook). Нужно сбросить фильтр, например **`allowed_updates": []`** (все типы по умолчанию, кроме исключений в [доке Bot API](https://core.telegram.org/bots/api#setwebhook)):
 
 ```bash
 curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
   -H "Content-Type: application/json" \
   -d "{
     \"url\": \"https://api.mandala-app.online/webhooks/telegram/${TELEGRAM_VERTICAL_ID}\",
-    \"secret_token\": \"${TELEGRAM_WEBHOOK_SECRET}\"
+    \"secret_token\": \"${TELEGRAM_WEBHOOK_SECRET}\",
+    \"allowed_updates\": []
   }"
+```
+
+Проверка:
+
+```bash
+curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
 ```
 
 **DeepSeek** (OpenAI-совместимый чат):

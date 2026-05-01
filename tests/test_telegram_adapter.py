@@ -83,6 +83,22 @@ def test_telegram_map_callback() -> None:
     assert ev.raw_ref is not None and ev.raw_ref["chat_id"] == 100
 
 
+def test_telegram_map_callback_without_message_private_fallback() -> None:
+    """Если ``message`` в callback нет — личка: подставляем chat_id = from.id."""
+    upd = {
+        "update_id": 4,
+        "callback_query": {
+            "id": "cq2",
+            "from": {"id": 555, "is_bot": False},
+            "data": "mdl:natal",
+        },
+    }
+    ev = telegram_update_to_inbound_event(upd, vertical_id="astrology")
+    assert ev is not None
+    assert ev.text == "mdl:natal"
+    assert ev.raw_ref is not None and ev.raw_ref["chat_id"] == 555
+
+
 def test_telegram_map_skips_unknown() -> None:
     assert telegram_update_to_inbound_event({"update_id": 1, "poll": {}}, vertical_id="x") is None
 

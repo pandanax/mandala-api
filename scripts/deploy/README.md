@@ -137,12 +137,15 @@ yc managed-postgresql database create mandala --cluster-name n8n-postgres --owne
 
 ## 6. Telegram webhook (HTTPS)
 
+Не задавайте **`allowed_updates`** только как **`["message"]`** — иначе **не придут** **`callback_query`** и inline‑кнопки не заработают. Передайте **`allowed_updates": []`** для сброса (или явно включите **`callback_query`**).
+
 ```bash
 curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
   -H "Content-Type: application/json" \
   -d "{
     \"url\": \"https://api.mandala-app.online/webhooks/telegram/${TELEGRAM_VERTICAL_ID}\",
-    \"secret_token\": \"${TELEGRAM_WEBHOOK_SECRET}\"
+    \"secret_token\": \"${TELEGRAM_WEBHOOK_SECRET}\",
+    \"allowed_updates\": []
   }"
 ```
 

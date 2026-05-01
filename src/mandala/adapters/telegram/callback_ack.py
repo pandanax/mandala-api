@@ -24,4 +24,4 @@ def answer_callback_query_if_present(
     try:
         api.answer_callback_query(callback_query_id=str(raw_id))
     except TelegramApiError as e:
-        logger.debug("answerCallbackQuery skipped: %s", e.description)
+        logger.error("answerCallbackQuery failed: %s", e.description)

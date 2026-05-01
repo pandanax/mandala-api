@@ -69,8 +69,20 @@ def telegram_update_to_inbound_event(
         from_callback_query = True
         msg = cq.get("message") if isinstance(cq.get("message"), dict) else None
         actor = cq.get("from") if isinstance(cq.get("from"), dict) else None
-        if msg is None or actor is None:
+        if actor is None:
             return None
+        if msg is None:
+            # У Telegram иногда нет ``message`` (очень старое сообщение с кнопкой и т.п.).
+            # В личке с ботом ``chat_id`` для ответа совпадает с ``from.id``.
+            if isinstance(actor, dict) and "id" in actor:
+                uid = int(actor["id"])
+                msg = {
+                    "message_id": 0,
+                    "chat": {"id": uid, "type": "private"},
+                    "date": 0,
+                }
+            else:
+                return None
 
     if msg is None:
         return None
