@@ -56,11 +56,30 @@ RUN_MIGRATIONS=1 bash scripts/deploy/deploy.sh   # с миграциями
 SSH_HOST=ubuntu@<VM> bash scripts/deploy/deploy.sh
 ```
 
-Что делает: `build_image.sh` под `linux/amd64` → `podman save` → `scp` → на ВМ `docker load` + `restart_app.sh` → ждёт `/health`. Tar-файлы убирает сам.
+Что делает: `build_image.sh` под `linux/amd64` → `podman save` → `scp` → на ВМ `docker load` + `restart_app.sh` → ждёт `/health` → удаляет старые `localhost/mandala:*` образы на ВМ, оставляя `KEEP_REMOTE_IMAGES` самых свежих (по умолчанию 2) плюс защиту запущенного. Tar-файлы убирает сам и локально, и на ВМ.
 
 Требования:
 - на ВМ уже лежат `/opt/mandala/restart_app.sh` и `/opt/mandala/env`;
 - ssh-ключ настроен (без пароля).
+
+### 3.1.1. Если что-то пошло не так с диском
+
+Если на ВМ закончилось место (типичные симптомы: `podman build` висит часами, `scp` падает с `No space left`), сначала почистите старые образы вручную:
+
+```bash
+ssh ubuntu@api.mandala-app.online '
+  RUNNING_IMG=$(sudo docker inspect -f "{{.Config.Image}}" mandala-http 2>/dev/null || true)
+  sudo docker images --format "{{.Repository}}:{{.Tag}}" \
+    | grep "^localhost/mandala:" \
+    | grep -v "^${RUNNING_IMG}$" \
+    | xargs -r -n1 sudo docker rmi || true
+  sudo docker image prune -f
+  rm -f /tmp/mandala-*.tar
+  df -h /
+'
+```
+
+Локально аналогично: `podman image prune -f`, `rm -f /tmp/mandala-*.tar`. После обновления `deploy.sh` (с шагом prune) такие ситуации возникают редко — но если кто-то деплоил руками или прерывал сборку, мусор накапливается.
 
 ## 4. Запуск контейнера (пример)
 

@@ -77,21 +77,31 @@ def test_webhook_with_real_database() -> None:
         llm.close = Mock()
         mock_llm_factory.return_value = llm
 
-        # Тикет 13: сначала анкета (LLM не вызывается), затем диалог
+        # Тикет 13: сначала анкета (4 шага для astrology), затем диалог с LLM
         r1 = client.post("/webhooks/telegram/astrology", json=_msg("/start", 1))
-        r2 = client.post("/webhooks/telegram/astrology", json=_msg("Санкт-Петербург", 2))
-        r3 = client.post("/webhooks/telegram/astrology", json=_msg("10:15", 3))
-        r4 = client.post("/webhooks/telegram/astrology", json=_msg("Что скажешь про неделю?", 4))
-        response = r4
+        r2 = client.post("/webhooks/telegram/astrology", json=_msg("Иван Иванов", 2))
+        r3 = client.post("/webhooks/telegram/astrology", json=_msg("01.01.1990", 3))
+        r4 = client.post("/webhooks/telegram/astrology", json=_msg("Санкт-Петербург", 4))
+        r5 = client.post("/webhooks/telegram/astrology", json=_msg("10:15", 5))
+        r6 = client.post(
+            "/webhooks/telegram/astrology", json=_msg("Что скажешь про неделю?", 6)
+        )
+        response = r6
 
-    assert r1.status_code == 200 and r2.status_code == 200 and r3.status_code == 200
+    assert (
+        r1.status_code == 200
+        and r2.status_code == 200
+        and r3.status_code == 200
+        and r4.status_code == 200
+        and r5.status_code == 200
+    )
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
 
     assert mock_llm_factory.call_count == 1
     llm.complete.assert_called_once()
-    assert mock_deliver.call_count == 4
+    assert mock_deliver.call_count == 6
 
     call_args = mock_deliver.call_args
     assert call_args[1]["chat_id"] == chat_id
@@ -127,21 +137,31 @@ def test_web_chat_with_real_database() -> None:
         )
         r2 = client.post(
             "/webhooks/web",
-            json={"text": "Санкт-Петербург", "vertical_id": "astrology"},
+            json={"text": "Иван Иванов", "vertical_id": "astrology"},
             headers={"X-External-User-Id": ext_uid},
         )
         r3 = client.post(
             "/webhooks/web",
-            json={"text": "10:15", "vertical_id": "astrology"},
+            json={"text": "01.01.1990", "vertical_id": "astrology"},
             headers={"X-External-User-Id": ext_uid},
         )
         r4 = client.post(
+            "/webhooks/web",
+            json={"text": "Санкт-Петербург", "vertical_id": "astrology"},
+            headers={"X-External-User-Id": ext_uid},
+        )
+        r5 = client.post(
+            "/webhooks/web",
+            json={"text": "10:15", "vertical_id": "astrology"},
+            headers={"X-External-User-Id": ext_uid},
+        )
+        r6 = client.post(
             "/webhooks/web",
             json={"text": "Неделя?", "vertical_id": "astrology"},
             headers={"X-External-User-Id": ext_uid},
         )
 
-    for r in (r1, r2, r3, r4):
+    for r in (r1, r2, r3, r4, r5, r6):
         assert r.status_code == 200, r.text
         body = r.json()
         assert "messages" in body
@@ -149,6 +169,6 @@ def test_web_chat_with_real_database() -> None:
 
     assert mock_llm_factory.call_count == 1
     llm.complete.assert_called_once()
-    last = r4.json()["messages"][0]
+    last = r6.json()["messages"][0]
     assert last.get("text") is not None
     assert "astrology" in last["text"]
