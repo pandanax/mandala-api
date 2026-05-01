@@ -83,9 +83,7 @@ def test_webhook_with_real_database() -> None:
         r3 = client.post("/webhooks/telegram/astrology", json=_msg("01.01.1990", 3))
         r4 = client.post("/webhooks/telegram/astrology", json=_msg("Санкт-Петербург", 4))
         r5 = client.post("/webhooks/telegram/astrology", json=_msg("10:15", 5))
-        r6 = client.post(
-            "/webhooks/telegram/astrology", json=_msg("Что скажешь про неделю?", 6)
-        )
+        r6 = client.post("/webhooks/telegram/astrology", json=_msg("Что скажешь про неделю?", 6))
         response = r6
 
     assert (
