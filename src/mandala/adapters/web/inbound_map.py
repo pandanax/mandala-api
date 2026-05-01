@@ -43,6 +43,8 @@ def inbound_event_from_web(
     text_norm = tid if tid else None
     loc = locale.strip() if isinstance(locale, str) and locale.strip() else None
     cb = callback_data.strip() if isinstance(callback_data, str) and callback_data.strip() else None
+    if text_norm is None and cb is not None:
+        text_norm = cb
     return InboundEvent(
         vertical_id=vertical_id.strip(),
         channel=WEB_CHANNEL,

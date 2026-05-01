@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from mandala.adapters.telegram.billing_updates import process_telegram_billing_update
 from mandala.adapters.telegram.bot_api import TelegramBotApiClient
+from mandala.adapters.telegram.callback_ack import answer_callback_query_if_present
 from mandala.adapters.telegram.inbound_map import telegram_update_to_inbound_event
 from mandala.adapters.telegram.outbound_send import deliver_outbound_messages
 from mandala.domain.handler import handle_inbound
@@ -110,27 +111,28 @@ def create_app() -> FastAPI:
                 outbound_messages = handle_inbound(event, conn)
 
             bot_token = _get_bot_token_for_vertical(vertical_id)
-            if (
-                bot_token
-                and outbound_messages
-                and event.raw_ref
-                and event.raw_ref.get("chat_id") is not None
-            ):
+            if bot_token:
                 with TelegramBotApiClient(bot_token) as api:
-                    deliver_outbound_messages(
-                        api,
-                        chat_id=int(event.raw_ref["chat_id"]),
-                        messages=outbound_messages,
-                        vertical_id=vertical_id,
-                    )
-                logger.info(
-                    "funnel webhook %s",
-                    op_format(
-                        vertical_id=vertical_id,
-                        stage="delivered",
-                        n_messages=len(outbound_messages),
-                    ),
-                )
+                    if (
+                        outbound_messages
+                        and event.raw_ref
+                        and event.raw_ref.get("chat_id") is not None
+                    ):
+                        deliver_outbound_messages(
+                            api,
+                            chat_id=int(event.raw_ref["chat_id"]),
+                            messages=outbound_messages,
+                            vertical_id=vertical_id,
+                        )
+                        logger.info(
+                            "funnel webhook %s",
+                            op_format(
+                                vertical_id=vertical_id,
+                                stage="delivered",
+                                n_messages=len(outbound_messages),
+                            ),
+                        )
+                    answer_callback_query_if_present(api, update_data)
             elif outbound_messages and not bot_token:
                 logger.error("No bot token found for vertical_id=%s", vertical_id)
 

@@ -52,6 +52,7 @@ def telegram_update_to_inbound_event(
     Поддерживаются: ``message``, ``edited_message``, ``callback_query``.
     """
     callback_data: str | None = None
+    from_callback_query = False
     msg: dict[str, Any] | None = None
     actor: dict[str, Any] | None = None
 
@@ -65,6 +66,7 @@ def telegram_update_to_inbound_event(
         cq = update["callback_query"]
         raw_d = cq.get("data")
         callback_data = str(raw_d) if raw_d is not None else None
+        from_callback_query = True
         msg = cq.get("message") if isinstance(cq.get("message"), dict) else None
         actor = cq.get("from") if isinstance(cq.get("from"), dict) else None
         if msg is None or actor is None:
@@ -86,7 +88,13 @@ def telegram_update_to_inbound_event(
         external_user_id = str(chat_id)
         locale_s = None
 
-    body_text, attachments = _message_body(msg)
+    if from_callback_query:
+        # Текст сообщения с клавиатурой — не ввод пользователя; в домен уходит действие кнопки.
+        cb = (callback_data or "").strip()
+        body_text = cb if cb else None
+        attachments: list[InboundAttachment] = []
+    else:
+        body_text, attachments = _message_body(msg)
     raw_ref: dict[str, Any] = {"chat_id": chat_id}
     if "message_id" in msg:
         raw_ref["message_id"] = msg["message_id"]

@@ -79,6 +79,7 @@ def test_telegram_map_callback() -> None:
     assert ev is not None
     assert ev.external_user_id == "99"
     assert ev.callback_data == "pay:1"
+    assert ev.text == "pay:1"
     assert ev.raw_ref is not None and ev.raw_ref["chat_id"] == 100
 
 

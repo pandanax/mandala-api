@@ -161,6 +161,22 @@ class TelegramBotApiClient:
         assert isinstance(out, dict)
         return out
 
+    def answer_callback_query(
+        self,
+        *,
+        callback_query_id: str,
+        text: str | None = None,
+        show_alert: bool | None = None,
+    ) -> bool:
+        """``answerCallbackQuery`` — снять «часики» после нажатия inline-кнопки."""
+        p: dict[str, Any] = {"callback_query_id": callback_query_id}
+        if text is not None:
+            p["text"] = text
+        if show_alert is not None:
+            p["show_alert"] = show_alert
+        raw = self.call("answerCallbackQuery", p)
+        return bool(raw)
+
     def answer_pre_checkout_query(
         self,
         *,
