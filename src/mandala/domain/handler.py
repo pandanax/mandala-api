@@ -16,6 +16,7 @@ from mandala.services.intent_router import post_intake_intent
 from mandala.services.scenario_intake import handle_intake_before_llm
 from mandala.services.text_reply import handle_inbound_text_llm
 from mandala.services.user_identity import UserIdentityService
+from mandala.verticals.quick_actions import expand_inbound_quick_action
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,12 @@ def handle_inbound(
         )
         return intake_out
 
-    if post_intake_intent(event.text) == "image":
+    event_for_pipeline = event
+    expanded = expand_inbound_quick_action(event.vertical_id, event.text)
+    if expanded is not None and expanded != event.text:
+        event_for_pipeline = event.model_copy(update={"text": expanded})
+
+    if post_intake_intent(event_for_pipeline.text) == "image":
         logger.info(
             "funnel inbound %s",
             op_format(
@@ -103,7 +109,9 @@ def handle_inbound(
                 intent="image",
             ),
         )
-        return handle_inbound_image_generation(conn, event, uid, image_client=image_client)
+        return handle_inbound_image_generation(
+            conn, event_for_pipeline, uid, image_client=image_client
+        )
     logger.info(
         "funnel inbound %s",
         op_format(
@@ -118,9 +126,10 @@ def handle_inbound(
     dialog_summary = raw_summary.strip() if isinstance(raw_summary, str) else None
     return handle_inbound_text_llm(
         conn,
-        event,
+        event_for_pipeline,
         uid,
         llm_client=llm_client,
         kb_search=kb_search,
         dialog_summary=dialog_summary,
+        agent_card=profile.agent_card,
     )

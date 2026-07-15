@@ -49,7 +49,7 @@ def test_inbound_event_from_web_strips_and_optional_fields() -> None:
     )
     assert ev.vertical_id == "therapy"
     assert ev.external_user_id == "u1"
-    assert ev.text is None
+    assert ev.text == "cb"
     assert ev.locale == "ru"
     assert ev.callback_data == "cb"
 

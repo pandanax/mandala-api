@@ -4,7 +4,7 @@
 
 UX: служебные команды (``/start``, ``/help``, ``/about``, ``/reset``) перехватываются
 до валидации шага, не считаются «невалидным ответом» и возвращают приветствие
-+ prompt текущего шага. Полноценные команды/inline-кнопки — отдельный тикет.
++ prompt текущего шага. После анкеты — подсказки и inline-кнопки услуг (см. ``post_intake_offers``).
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from mandala.repositories.messages import MessageRepository
 from mandala.repositories.profiles import ClientProfileDTO, ProfileRepository
 from mandala.services.text_reply import MSG_NEED_TEXT
 from mandala.verticals.intake_config import IntakeStep, intake_steps_for_vertical
+from mandala.verticals.post_intake_offers import post_intake_completion_message
 
 logger = logging.getLogger(__name__)
 
@@ -133,11 +134,9 @@ def handle_intake_before_llm(
     profiles.merge_scenario_state(user_id, patch)
 
     if next_idx >= len(steps):
-        return [
-            OutboundMessage(
-                text="Спасибо, анкета сохранена. Можете задать вопрос — отвечу в режиме диалога.",
-            )
-        ]
+        fresh = profiles.get_by_user_id(user_id)
+        ac = dict(fresh.agent_card) if fresh else {}
+        return [post_intake_completion_message(event.vertical_id, ac)]
 
     nxt: IntakeStep = steps[next_idx]
     return [OutboundMessage(text=nxt.prompt)]
@@ -264,11 +263,15 @@ def _handle_command(
 
     # info-команды: без побочных эффектов
     if intake_complete:
-        return [
-            OutboundMessage(
-                text=f"{greeting}\n\nВы уже прошли анкету — задайте вопрос текстом, я отвечу.",
-            )
-        ]
+        profiles_repo = ProfileRepository(conn)
+        fresh = profiles_repo.get_by_user_id(user_id)
+        ac = dict(fresh.agent_card) if fresh else {}
+        follow = post_intake_completion_message(event.vertical_id, ac)
+        body = (
+            f"{greeting}\n\nАнкета уже заполнена. Выберите действие кнопкой "
+            "или напишите запрос текстом."
+        ).rstrip()
+        return [OutboundMessage(text=body, buttons=follow.buttons)]
     raw_idx = state.get(KEY_INTAKE_STEP_INDEX, 0)
     try:
         idx = int(raw_idx)

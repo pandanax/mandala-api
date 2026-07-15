@@ -7,6 +7,8 @@
 Память диалога (тикет 17): в запрос к модели попадают последние
 :const:`TEXT_REPLY_CONTEXT_MESSAGES` строк из ``messages`` (после записи текущего
 входа пользователя), в хронологическом порядке. Порядок сегментов контекста:
+блок текущей даты/времени
+(:func:`mandala.services.llm_time_context.build_llm_time_context_block`) →
 системный промпт вертикали → блок KB (RAG, тикет 16) → опциональная сводка
 ``scenario_state["dialog_summary"]`` (в том же ``system``) → история ролей
 ``user``/``assistant`` с непустым ``content_text`` (последняя реплика — текущий
@@ -16,6 +18,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from uuid import UUID
 
 from sqlalchemy.engine import Connection
@@ -31,8 +34,14 @@ from mandala.rag.factory import create_kb_search_from_env
 from mandala.rag.prompt_injection import build_kb_context_block
 from mandala.rag.protocol import KbSearchPort
 from mandala.repositories.messages import MessageDTO, MessageRepository
+from mandala.repositories.profiles import ProfileRepository
+from mandala.services.llm_time_context import build_llm_time_context_block
 from mandala.services.quota import RESOURCE_TEXT_REPLY, QuotaService
 from mandala.verticals import get_vertical_system_prompt
+from mandala.verticals.client_knowledge import (
+    AGENT_CARD_NATAL_CHART_TEXT,
+    split_llm_agent_card_suffix,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +87,7 @@ def handle_inbound_text_llm(
     llm_client: TextCompletionClient | None = None,
     kb_search: KbSearchPort | None = None,
     dialog_summary: str | None = None,
+    agent_card: Mapping[str, object] | None = None,
 ) -> list[OutboundMessage]:
     """Сохранить вход пользователя, проверить квоту, вызвать LLM, сохранить ответ, ``consume``.
 
@@ -87,8 +97,9 @@ def handle_inbound_text_llm(
     ``kb_search`` — опциональный поиск по KB (тикет 16); если ``None``, при включённом env
     используется :func:`mandala.rag.factory.create_kb_search_from_env`.
 
-    ``dialog_summary`` — опциональная сводка из ``client_profiles.scenario_state``;
-    запись и обновление сводки — TODO (вне scope тикета 17; например фоновая нарезка по токенам).
+    ``agent_card`` — снимок ``client_profiles.agent_card`` для контекста (астрология:
+    анкета и сохранённая натальная карта). После ответа LLM допускается слияние
+    разрешённых полей из хвоста ``---mandala---`` + JSON (см. ``client_knowledge``).
     """
     user_text = (event.text or "").strip()
     if not user_text:
@@ -126,6 +137,31 @@ def handle_inbound_text_llm(
 
     search_port = kb_search if kb_search is not None else create_kb_search_from_env()
     system_prompt = get_vertical_system_prompt(event.vertical_id)
+    system_prompt = f"{build_llm_time_context_block()}\n\n{system_prompt}"
+    card = dict(agent_card or {})
+    if event.vertical_id.strip() == "astrology":
+        lines: list[str] = []
+        for key, label in (
+            ("full_name", "Имя"),
+            ("birth_date", "Дата рождения"),
+            ("birth_place", "Место рождения"),
+            ("birth_time", "Время рождения"),
+        ):
+            val = card.get(key)
+            if isinstance(val, str) and val.strip():
+                lines.append(f"- {label}: {val.strip()}")
+        if lines:
+            system_prompt = (
+                f"{system_prompt}\n\nДанные клиента из анкеты (не переспрашивай без причины):\n"
+                + "\n".join(lines)
+            )
+        natal_raw = card.get(AGENT_CARD_NATAL_CHART_TEXT)
+        if isinstance(natal_raw, str) and natal_raw.strip():
+            snippet = natal_raw.strip()[:3500]
+            system_prompt = (
+                f"{system_prompt}\n\nСохранённая натальная карта клиента "
+                f"(опирайся на неё; не копируй целиком без запроса):\n{snippet}"
+            )
     if search_port is not None:
         rag_cfg = RagEnvSettings.from_env()
         try:
@@ -193,11 +229,19 @@ def handle_inbound_text_llm(
         ),
     )
 
+    cleaned_reply, agent_patch = (
+        split_llm_agent_card_suffix(reply)
+        if event.vertical_id.strip() == "astrology"
+        else (reply, {})
+    )
+    if agent_patch:
+        ProfileRepository(conn).merge_agent_card(user_id, agent_patch)
+
     messages.insert(
         user_id=user_id,
         vertical_id=event.vertical_id,
         role="assistant",
-        content_text=reply,
+        content_text=cleaned_reply,
         content_kind="text",
     )
 
@@ -219,4 +263,4 @@ def handle_inbound_text_llm(
             ),
         )
 
-    return [OutboundMessage(text=reply)]
+    return [OutboundMessage(text=cleaned_reply)]

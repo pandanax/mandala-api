@@ -6,11 +6,81 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from mandala.adapters.telegram.bot_api import TelegramBotApiClient
+from mandala.adapters.telegram.bot_api import TelegramApiError, TelegramBotApiClient
+from mandala.adapters.telegram.text_format import format_llm_text_for_telegram_html
 from mandala.domain import OutboundMessage
 from mandala.observability import op_format
 
 logger = logging.getLogger(__name__)
+
+
+def _telegram_entity_parse_failed(err: TelegramApiError) -> bool:
+    d = err.description.lower()
+    return "parse" in d or "entity" in d
+
+
+def _send_message_html_or_plain(
+    api: TelegramBotApiClient,
+    *,
+    chat_id: int,
+    text: str,
+    reply_markup: dict[str, Any] | None,
+) -> None:
+    formatted = format_llm_text_for_telegram_html(text)
+    try:
+        api.send_message(
+            chat_id=chat_id,
+            text=formatted,
+            reply_markup=reply_markup,
+            parse_mode="HTML",
+        )
+    except TelegramApiError as e:
+        if _telegram_entity_parse_failed(e):
+            logger.warning(
+                "telegram sendMessage HTML parse failed, fallback plain chat_id=%s err=%s",
+                chat_id,
+                e.description,
+            )
+            api.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
+        else:
+            raise
+
+
+def _send_photo_caption_html_or_plain(
+    api: TelegramBotApiClient,
+    *,
+    chat_id: int,
+    photo: str,
+    caption: str | None,
+    reply_markup: dict[str, Any] | None,
+) -> None:
+    if caption is None:
+        api.send_photo(chat_id=chat_id, photo=photo, reply_markup=reply_markup)
+        return
+    formatted = format_llm_text_for_telegram_html(caption)
+    try:
+        api.send_photo(
+            chat_id=chat_id,
+            photo=photo,
+            caption=formatted,
+            reply_markup=reply_markup,
+            parse_mode="HTML",
+        )
+    except TelegramApiError as e:
+        if _telegram_entity_parse_failed(e):
+            logger.warning(
+                "telegram sendPhoto caption HTML parse failed, fallback plain chat_id=%s err=%s",
+                chat_id,
+                e.description,
+            )
+            api.send_photo(
+                chat_id=chat_id,
+                photo=photo,
+                caption=caption,
+                reply_markup=reply_markup,
+            )
+        else:
+            raise
 
 
 def _buttons_to_reply_markup(buttons: list[list[dict[str, str]]]) -> dict[str, Any]:
@@ -55,12 +125,13 @@ def deliver_outbound_messages(
             markup = _buttons_to_reply_markup(msg.buttons)
 
         if msg.photo:
-            api.send_photo(
+            _send_photo_caption_html_or_plain(
+                api,
                 chat_id=chat_id,
                 photo=msg.photo,
                 caption=msg.text,
                 reply_markup=markup,
             )
         elif msg.text is not None:
-            api.send_message(chat_id=chat_id, text=msg.text, reply_markup=markup)
+            _send_message_html_or_plain(api, chat_id=chat_id, text=msg.text, reply_markup=markup)
         # TODO(тикет 12+): ``requires_payment``, ``defer`` — сценарии оплаты и отложенных ответов.

@@ -124,7 +124,8 @@ def test_full_intake_then_messages_in_db(engine: Engine) -> None:
     assert "время" in place_text or "чч:мм" in place_text
     out_time = run("14:05")
     time_text = (out_time[0].text or "").lower()
-    assert "анкета" in time_text or "сохран" in time_text
+    assert "анкета" in time_text or "сохран" in time_text or "кнопк" in time_text
+    assert out_time[0].buttons
 
     with engine.begin() as conn:
         uid = UserIdentityService(conn).get_or_create_user(

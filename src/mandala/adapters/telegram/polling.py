@@ -13,9 +13,11 @@ from sqlalchemy.engine import Engine
 
 from mandala.adapters.telegram.billing_updates import process_telegram_billing_update
 from mandala.adapters.telegram.bot_api import TelegramBotApiClient
+from mandala.adapters.telegram.callback_ack import answer_callback_query_if_present
 from mandala.adapters.telegram.inbound_map import telegram_update_to_inbound_event
 from mandala.adapters.telegram.outbound_send import deliver_outbound_messages
 from mandala.adapters.telegram.secrets import mask_bot_token
+from mandala.adapters.telegram.typing_keepalive import run_with_typing_keepalive
 from mandala.db.engine import create_engine_from_env
 from mandala.domain import handle_inbound
 from mandala.observability import op_format
@@ -77,7 +79,9 @@ def process_telegram_update(
         return
 
     with engine.begin() as conn:
-        outbound = handle_inbound(event, conn)
+        outbound = run_with_typing_keepalive(
+            api, int(chat_id), lambda: handle_inbound(event, conn)
+        )
 
     deliver_outbound_messages(
         api,
@@ -85,6 +89,7 @@ def process_telegram_update(
         messages=outbound,
         vertical_id=vertical_id,
     )
+    answer_callback_query_if_present(api, update)
 
 
 def run_polling_forever(

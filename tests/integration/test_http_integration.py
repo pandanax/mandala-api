@@ -67,7 +67,10 @@ def test_webhook_with_real_database() -> None:
 
     with (
         patch.dict(os.environ, env_vars),
-        patch("mandala.http.app.deliver_outbound_messages") as mock_deliver,
+        patch(
+            "mandala.adapters.telegram.webhook_delivery.deliver_outbound_messages"
+        ) as mock_deliver,
+        patch("mandala.adapters.telegram.webhook_delivery.TelegramBotApiClient"),
         patch(
             "mandala.services.text_reply.create_text_client_for_vertical",
         ) as mock_llm_factory,

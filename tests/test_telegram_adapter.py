@@ -79,7 +79,24 @@ def test_telegram_map_callback() -> None:
     assert ev is not None
     assert ev.external_user_id == "99"
     assert ev.callback_data == "pay:1"
+    assert ev.text == "pay:1"
     assert ev.raw_ref is not None and ev.raw_ref["chat_id"] == 100
+
+
+def test_telegram_map_callback_without_message_private_fallback() -> None:
+    """Если ``message`` в callback нет — личка: подставляем chat_id = from.id."""
+    upd = {
+        "update_id": 4,
+        "callback_query": {
+            "id": "cq2",
+            "from": {"id": 555, "is_bot": False},
+            "data": "mdl:natal",
+        },
+    }
+    ev = telegram_update_to_inbound_event(upd, vertical_id="astrology")
+    assert ev is not None
+    assert ev.text == "mdl:natal"
+    assert ev.raw_ref is not None and ev.raw_ref["chat_id"] == 555
 
 
 def test_telegram_map_skips_unknown() -> None:
@@ -95,12 +112,18 @@ def test_deliver_outbound_text_and_photo() -> None:
     deliver_outbound_messages(api, chat_id=1, messages=msgs)
     assert api.send_message.call_count == 1
     assert api.send_photo.call_count == 1
-    api.send_message.assert_called_with(chat_id=1, text="a", reply_markup=None)
+    api.send_message.assert_called_with(
+        chat_id=1,
+        text="a",
+        reply_markup=None,
+        parse_mode="HTML",
+    )
     api.send_photo.assert_called_with(
         chat_id=1,
         photo="file_xyz",
         caption="cap",
         reply_markup=None,
+        parse_mode="HTML",
     )
 
 

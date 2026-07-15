@@ -77,10 +77,12 @@ def test_webhook_success(client: TestClient) -> None:
 
     with (
         patch.dict(os.environ, env_vars),
-        patch("mandala.http.app.get_engine") as mock_get_engine,
-        patch("mandala.http.app.handle_inbound") as mock_handle,
-        patch("mandala.http.app.TelegramBotApiClient"),
-        patch("mandala.http.app.deliver_outbound_messages") as mock_deliver,
+        patch("mandala.adapters.telegram.webhook_delivery.get_engine") as mock_get_engine,
+        patch("mandala.adapters.telegram.webhook_delivery.handle_inbound") as mock_handle,
+        patch("mandala.adapters.telegram.webhook_delivery.TelegramBotApiClient"),
+        patch(
+            "mandala.adapters.telegram.webhook_delivery.deliver_outbound_messages"
+        ) as mock_deliver,
     ):
         mock_engine = Mock()
         mock_conn = Mock()
@@ -95,17 +97,17 @@ def test_webhook_success(client: TestClient) -> None:
             "/webhooks/telegram/astrology", json=telegram_update, headers=headers
         )
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "ok"
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
 
-    mock_handle.assert_called_once()
-    event = mock_handle.call_args[0][0]
-    assert event.vertical_id == "astrology"
-    assert event.channel == "telegram"
-    assert event.external_user_id == "123456"
-    assert event.text == "Привет"
+        mock_handle.assert_called_once()
+        event = mock_handle.call_args[0][0]
+        assert event.vertical_id == "astrology"
+        assert event.channel == "telegram"
+        assert event.external_user_id == "123456"
+        assert event.text == "Привет"
 
-    mock_deliver.assert_called_once()
+        mock_deliver.assert_called_once()
 
 
 def test_webhook_invalid_secret(client: TestClient) -> None:
@@ -172,10 +174,10 @@ def test_webhook_no_secret_configured(client: TestClient) -> None:
 
     with (
         patch.dict(os.environ, env_vars, clear=True),
-        patch("mandala.http.app.get_engine") as mock_get_engine,
-        patch("mandala.http.app.handle_inbound") as mock_handle,
-        patch("mandala.http.app.TelegramBotApiClient"),
-        patch("mandala.http.app.deliver_outbound_messages"),
+        patch("mandala.adapters.telegram.webhook_delivery.get_engine") as mock_get_engine,
+        patch("mandala.adapters.telegram.webhook_delivery.handle_inbound") as mock_handle,
+        patch("mandala.adapters.telegram.webhook_delivery.TelegramBotApiClient"),
+        patch("mandala.adapters.telegram.webhook_delivery.deliver_outbound_messages"),
     ):
         mock_engine = Mock()
         mock_conn = Mock()
@@ -205,16 +207,7 @@ def test_webhook_unprocessable_update(client: TestClient) -> None:
         },
     }
 
-    with (
-        patch.dict(os.environ, env_vars, clear=True),
-        patch("mandala.http.app.get_engine") as mock_get_engine,
-    ):
-        mock_engine = Mock()
-        mock_conn = Mock()
-        mock_engine.begin.return_value.__enter__ = Mock(return_value=mock_conn)
-        mock_engine.begin.return_value.__exit__ = Mock(return_value=None)
-        mock_get_engine.return_value = mock_engine
-
+    with patch.dict(os.environ, env_vars, clear=True):
         response = client.post("/webhooks/telegram/astrology", json=telegram_update)
 
     assert response.status_code == 200
@@ -307,8 +300,8 @@ def test_webhook_wrong_vertical(client: TestClient) -> None:
 
     with (
         patch.dict(os.environ, env_vars, clear=True),
-        patch("mandala.http.app.get_engine") as mock_get_engine,
-        patch("mandala.http.app.handle_inbound") as mock_handle,
+        patch("mandala.adapters.telegram.webhook_delivery.get_engine") as mock_get_engine,
+        patch("mandala.adapters.telegram.webhook_delivery.handle_inbound") as mock_handle,
     ):
         mock_engine = Mock()
         mock_conn = Mock()

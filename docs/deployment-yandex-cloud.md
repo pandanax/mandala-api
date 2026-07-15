@@ -271,9 +271,12 @@ sudo docker logs n8n-nginx --tail 200 | grep webhooks/telegram
      -d "{
        \"url\": \"https://api.mandala-app.online/webhooks/telegram/${TELEGRAM_VERTICAL_ID}\",
        \"secret_token\": \"${TELEGRAM_WEBHOOK_SECRET}\",
-       \"drop_pending_updates\": true
+       \"drop_pending_updates\": true,
+       \"allowed_updates\": []
      }"
    ```
+
+   Поле **`allowed_updates": []`** снимает узкий фильтр (например только **`message`**), без **`callback_query`** inline‑кнопки не доходят до сервера.
 
    Ожидаемо: `{"ok":true,"result":true,"description":"Webhook was set"}`.
 6. **Smoke-test:** в Telegram открыть бота и написать любое сообщение (или `/start`) — должна пойти анкета вертикали (см. **[agent.md](agent.md)** про intake).
