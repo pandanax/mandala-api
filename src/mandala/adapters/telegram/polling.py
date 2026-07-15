@@ -79,9 +79,7 @@ def process_telegram_update(
         return
 
     with engine.begin() as conn:
-        outbound = run_with_typing_keepalive(
-            api, int(chat_id), lambda: handle_inbound(event, conn)
-        )
+        outbound = run_with_typing_keepalive(api, int(chat_id), lambda: handle_inbound(event, conn))
 
     deliver_outbound_messages(
         api,
