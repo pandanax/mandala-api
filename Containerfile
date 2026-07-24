@@ -28,7 +28,7 @@ COPY alembic.ini ./alembic.ini
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     HOST=0.0.0.0 \
-    PORT=8000
+    PORT=8080
 
 USER mandala
 EXPOSE 8000
