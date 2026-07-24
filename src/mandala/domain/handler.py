@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from sqlalchemy.engine import Connection
 
@@ -16,7 +17,13 @@ from mandala.services.intent_router import post_intake_intent
 from mandala.services.scenario_intake import handle_intake_before_llm
 from mandala.services.text_reply import handle_inbound_text_llm
 from mandala.services.user_identity import UserIdentityService
-from mandala.verticals.quick_actions import expand_inbound_quick_action
+from mandala.verticals.client_knowledge import AGENT_CARD_ASTRO_SYSTEM, AGENT_CARD_NATAL_CHART_DATA
+from mandala.verticals.quick_actions import (
+    expand_inbound_quick_action,
+    is_reset_button,
+    is_show_profile,
+    is_system_switch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,9 +100,21 @@ def handle_inbound(
         )
         return intake_out
 
+    # Кнопка «Начать заново» — hard reset напрямую из reply keyboard
+    if is_reset_button(event.text):
+        event_for_pipeline = event.model_copy(update={"text": "/reset"})
+        return handle_intake_before_llm(conn, event_for_pipeline, uid, profile) or []
+
     event_for_pipeline = event
     expanded = expand_inbound_quick_action(event.vertical_id, event.text)
     if expanded is not None and expanded != event.text:
+        switched, new_system = is_system_switch(expanded)
+        if switched:
+            return _handle_system_switch(
+                conn, uid, event.vertical_id, new_system, profile.agent_card
+            )
+        if is_show_profile(expanded):
+            return _handle_show_profile(uid, event.vertical_id, profile.agent_card)
         event_for_pipeline = event.model_copy(update={"text": expanded})
 
     if post_intake_intent(event_for_pipeline.text) == "image":
@@ -133,3 +152,93 @@ def handle_inbound(
         dialog_summary=dialog_summary,
         agent_card=profile.agent_card,
     )
+
+
+def _handle_show_profile(
+    user_id: object,
+    vertical_id: str,
+    agent_card: dict[str, Any],
+) -> list[OutboundMessage]:
+    """Показать пользователю всё, что мы знаем о нём."""
+    lines: list[str] = ["👤 <b>Ваш профиль</b>", ""]
+
+    field_labels = [
+        ("full_name", "Имя"),
+        ("birth_date", "Дата рождения"),
+        ("birth_place", "Место рождения"),
+        ("birth_time", "Время рождения"),
+    ]
+    for key, label in field_labels:
+        val = agent_card.get(key)
+        if isinstance(val, str) and val.strip():
+            lines.append(f"<b>{label}:</b> {val.strip()}")
+
+    system = agent_card.get(AGENT_CARD_ASTRO_SYSTEM)
+    if isinstance(system, str) and system.strip():
+        label = "🕉️ Ведическая (Lahiri)" if system == "vedic" else "🌟 Западная (тропическая)"
+        lines.append(f"<b>Система:</b> {label}")
+
+    natal_data = agent_card.get(AGENT_CARD_NATAL_CHART_DATA)
+    if isinstance(natal_data, dict) and natal_data:
+        lines.append("")
+        lines.append("🪐 <b>Рассчитанная натальная карта:</b>")
+        sun = natal_data.get("sun_sign", "?")
+        moon = natal_data.get("moon_sign", "?")
+        asc = natal_data.get("ascendant")
+        lines.append(f"  ☀️ Солнце: {sun}")
+        lines.append(f"  🌙 Луна: {moon}")
+        if asc:
+            lines.append(f"  ⬆️ Асцендент: {asc}")
+        calc_at = natal_data.get("calculated_at", "")
+        if calc_at:
+            lines.append(f"  📐 Рассчитано: {calc_at[:10]}")
+    elif agent_card.get("natal_chart_text"):
+        lines.append("")
+        lines.append("📋 Натальная карта сохранена (текстовая версия).")
+
+    promo = agent_card.get("activated_promo")
+    if isinstance(promo, str) and promo.strip():
+        lines.append("")
+        lines.append(f"✅ Промо-код активирован: <code>{promo}</code> — подписка без ограничений")
+
+    lines.append("")
+    lines.append("Для сброса данных нажмите «🔄 Начать заново» или введите /reset.")
+
+    return [OutboundMessage(text="\n".join(lines))]
+
+
+def _handle_system_switch(
+    conn: Connection,
+    user_id: object,
+    vertical_id: str,
+    new_system: str,
+    agent_card: dict[str, Any],
+) -> list[OutboundMessage]:
+    """Переключить астрологическую систему и пересчитать натальную карту."""
+    from uuid import UUID
+
+    from mandala.repositories.profiles import ProfileRepository
+    from mandala.services.scenario_intake import _try_calculate_and_save_natal_chart
+
+    uid = user_id if isinstance(user_id, UUID) else UUID(str(user_id))
+    profiles = ProfileRepository(conn)
+    profiles.merge_agent_card(uid, {AGENT_CARD_ASTRO_SYSTEM: new_system})
+    updated_card = dict(agent_card)
+    updated_card[AGENT_CARD_ASTRO_SYSTEM] = new_system
+    updated_card.pop(AGENT_CARD_NATAL_CHART_DATA, None)
+    _try_calculate_and_save_natal_chart(
+        conn=conn, user_id=uid, agent_card=updated_card, profiles=profiles
+    )
+    label = (
+        "🕉️ Ведическая (сидерическая, Lahiri)"
+        if new_system == "vedic"
+        else "🌟 Западная (тропическая)"
+    )
+    return [
+        OutboundMessage(
+            text=(
+                f"✅ Переключено на {label} систему.\n"
+                "Натальная карта пересчитана. Следующий ответ будет использовать новые позиции."
+            )
+        )
+    ]

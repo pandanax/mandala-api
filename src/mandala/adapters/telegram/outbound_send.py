@@ -95,6 +95,16 @@ def _buttons_to_reply_markup(buttons: list[list[dict[str, str]]]) -> dict[str, A
     return {"inline_keyboard": rows}
 
 
+def _reply_keyboard_to_markup(keyboard: list[list[str]]) -> dict[str, Any]:
+    rows = [[{"text": btn} for btn in row] for row in keyboard]
+    return {
+        "keyboard": rows,
+        "resize_keyboard": True,
+        "persistent": True,
+        "one_time_keyboard": False,
+    }
+
+
 def deliver_outbound_messages(
     api: TelegramBotApiClient,
     *,
@@ -121,7 +131,9 @@ def deliver_outbound_messages(
         )
     for msg in messages:
         markup: dict[str, Any] | None = None
-        if msg.buttons:
+        if msg.reply_keyboard:
+            markup = _reply_keyboard_to_markup(msg.reply_keyboard)
+        elif msg.buttons:
             markup = _buttons_to_reply_markup(msg.buttons)
 
         if msg.photo:

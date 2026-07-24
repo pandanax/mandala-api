@@ -20,6 +20,7 @@ from mandala.domain.contracts import InboundEvent, OutboundMessage
 from mandala.repositories.messages import MessageRepository
 from mandala.repositories.profiles import ClientProfileDTO, ProfileRepository
 from mandala.services.text_reply import MSG_NEED_TEXT
+from mandala.verticals.client_knowledge import AGENT_CARD_ASTRO_SYSTEM, AGENT_CARD_NATAL_CHART_DATA
 from mandala.verticals.intake_config import IntakeStep, intake_steps_for_vertical
 from mandala.verticals.post_intake_offers import post_intake_completion_message
 
@@ -37,7 +38,12 @@ INTAKE_SCHEMA_VERSION = 1
 _SOFT_RESTART_COMMANDS = frozenset({"/start", "/restart"})
 _HARD_RESET_COMMANDS = frozenset({"/reset"})
 _INFO_COMMANDS = frozenset({"/help", "/about", "/info"})
-_ALL_COMMANDS = _SOFT_RESTART_COMMANDS | _HARD_RESET_COMMANDS | _INFO_COMMANDS
+_PROMO_COMMANDS = frozenset({"/promo"})
+_TOPUP_COMMANDS = frozenset({"/topup"})
+_ALL_COMMANDS = (
+    _SOFT_RESTART_COMMANDS | _HARD_RESET_COMMANDS | _INFO_COMMANDS
+    | _PROMO_COMMANDS | _TOPUP_COMMANDS
+)
 
 
 def handle_intake_before_llm(
@@ -136,10 +142,81 @@ def handle_intake_before_llm(
     if next_idx >= len(steps):
         fresh = profiles.get_by_user_id(user_id)
         ac = dict(fresh.agent_card) if fresh else {}
-        return [post_intake_completion_message(event.vertical_id, ac)]
+        if event.vertical_id.strip() == "astrology":
+            _try_calculate_and_save_natal_chart(
+                conn=conn, user_id=user_id, agent_card=ac, profiles=profiles
+            )
+            fresh2 = profiles.get_by_user_id(user_id)
+            ac = dict(fresh2.agent_card) if fresh2 else ac
+        msgs = [post_intake_completion_message(event.vertical_id, ac)]
+        kb = _get_reply_keyboard(event.vertical_id)
+        if kb:
+            msgs.append(
+                OutboundMessage(
+                    text="Кнопки быстрого доступа закреплены ниже ↓", reply_keyboard=kb
+                )
+            )
+        return msgs
 
     nxt: IntakeStep = steps[next_idx]
     return [OutboundMessage(text=nxt.prompt)]
+
+
+def _get_reply_keyboard(vertical_id: str) -> list[list[str]] | None:
+    v = vertical_id.strip()
+    if v == "astrology":
+        from mandala.verticals.quick_actions import ASTROLOGY_REPLY_KEYBOARD
+
+        return ASTROLOGY_REPLY_KEYBOARD
+    return None
+
+
+def _handle_promo_command(
+    *,
+    conn: Connection,
+    user_id: UUID,
+    vertical_id: str,
+    code: str,
+) -> list[OutboundMessage]:
+    from mandala.services.promo import activate_promo
+
+    if not code:
+        return [OutboundMessage(text="Укажите промо-код: /promo КОД")]
+    activated = activate_promo(code=code, user_id=user_id, vertical_id=vertical_id, conn=conn)
+    if activated:
+        return [OutboundMessage(
+            text="✅ Промо-код активирован! Подписка без ограничений навсегда."
+        )]
+    return [OutboundMessage(text="❌ Неверный промо-код. Попробуйте другой.")]
+
+
+def _try_calculate_and_save_natal_chart(
+    *,
+    conn: Connection,
+    user_id: UUID,
+    agent_card: dict[str, Any],
+    profiles: ProfileRepository,
+) -> None:
+    """Рассчитать натальную карту математически и сохранить в agent_card при завершении анкеты."""
+    birth_date = str(agent_card.get("birth_date") or "").strip()
+    birth_time = str(agent_card.get("birth_time") or "unknown").strip()
+    birth_place = str(agent_card.get("birth_place") or "").strip()
+    if not birth_date or not birth_place:
+        return
+    system = str(agent_card.get(AGENT_CARD_ASTRO_SYSTEM) or "western")
+    try:
+        from mandala.astro.natal_chart import calculate_natal_chart
+
+        chart_data = calculate_natal_chart(
+            birth_date=birth_date,
+            birth_time=birth_time,
+            birth_place=birth_place,
+            system=system,
+        )
+        profiles.merge_agent_card(user_id, {AGENT_CARD_NATAL_CHART_DATA: chart_data})
+        logger.info("natal chart calculated system=%s user_id=%s", system, user_id)
+    except Exception:
+        logger.warning("natal chart calculation failed user_id=%s", user_id, exc_info=True)
 
 
 def _first_step_intro(vertical_id: str) -> str:
@@ -203,6 +280,9 @@ def _extract_command(user_text: str) -> str | None:
     head = head.lower()
     if head in _ALL_COMMANDS:
         return head
+    # /promo CODE — команда с аргументом
+    if head == "/promo":
+        return "/promo"
     return None
 
 
@@ -229,6 +309,22 @@ def _handle_command(
     что можно задавать вопросы; иначе — приветствие + prompt текущего шага.
     """
     greeting = _vertical_greeting(event.vertical_id)
+
+    if command in _PROMO_COMMANDS:
+        raw_text = (event.text or "").strip()
+        parts = raw_text.split(maxsplit=1)
+        code = parts[1].strip().upper() if len(parts) > 1 else ""
+        return _handle_promo_command(
+            conn=conn, user_id=user_id, vertical_id=event.vertical_id, code=code
+        )
+
+    if command in _TOPUP_COMMANDS:
+        return [OutboundMessage(
+            text=(
+                "✅ Тест-режим: счётчики использования сброшены для текущего периода.\n"
+                "Ограничения временно сняты для тестирования."
+            )
+        )]
 
     if command in _HARD_RESET_COMMANDS:
         profiles = ProfileRepository(conn)

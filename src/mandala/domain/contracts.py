@@ -92,6 +92,13 @@ class OutboundMessage(BaseModel):
         default=None,
         description="Опционально: клавиатура / inline (структура задаётся адаптером; тикет 9+).",
     )
+    reply_keyboard: list[list[str]] | None = Field(
+        default=None,
+        description=(
+            "Постоянная нижняя клавиатура (ReplyKeyboardMarkup в Telegram). "
+            "Каждый вложенный список — строка кнопок, текст кнопки = текст сообщения."
+        ),
+    )
     photo: str | None = Field(
         default=None,
         description="Фото: URL, ``file_id`` или иной идентификатор по возможностям канала.",
