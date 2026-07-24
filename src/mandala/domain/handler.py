@@ -203,7 +203,7 @@ def _handle_show_profile(
     agent_card: dict[str, Any],
 ) -> list[OutboundMessage]:
     """Показать пользователю всё, что мы знаем о нём."""
-    lines: list[str] = ["👤 <b>Ваш профиль</b>", ""]
+    lines: list[str] = ["👤 **Ваш профиль**", ""]
 
     field_labels = [
         ("full_name", "Имя"),
@@ -214,17 +214,17 @@ def _handle_show_profile(
     for key, label in field_labels:
         val = agent_card.get(key)
         if isinstance(val, str) and val.strip():
-            lines.append(f"<b>{label}:</b> {val.strip()}")
+            lines.append(f"**{label}:** {val.strip()}")
 
     system = agent_card.get(AGENT_CARD_ASTRO_SYSTEM)
     if isinstance(system, str) and system.strip():
         label = "🕉️ Ведическая (Lahiri)" if system == "vedic" else "🌟 Западная (тропическая)"
-        lines.append(f"<b>Система:</b> {label}")
+        lines.append(f"**Система:** {label}")
 
     natal_data = agent_card.get(AGENT_CARD_NATAL_CHART_DATA)
     if isinstance(natal_data, dict) and natal_data:
         lines.append("")
-        lines.append("🪐 <b>Рассчитанная натальная карта:</b>")
+        lines.append("🪐 **Рассчитанная натальная карта:**")
         sun = natal_data.get("sun_sign", "?")
         moon = natal_data.get("moon_sign", "?")
         asc = natal_data.get("ascendant")
@@ -242,7 +242,7 @@ def _handle_show_profile(
     promo = agent_card.get("activated_promo")
     if isinstance(promo, str) and promo.strip():
         lines.append("")
-        lines.append(f"✅ Промо-код активирован: <code>{promo}</code> — подписка без ограничений")
+        lines.append(f"✅ Промо-код активирован: `{promo}` — подписка без ограничений")
 
     lines.append("")
     lines.append("Для сброса данных нажмите «🔄 Начать заново» или введите /reset.")

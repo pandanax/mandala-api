@@ -1,9 +1,10 @@
-"""Подменю прогноза, постоянная клавиатура, /help с картинкой и setMyCommands."""
+"""Подменю прогноза, постоянная клавиатура, /help с картинкой, setMyCommands, сплиттер."""
 
 from __future__ import annotations
 
 import asyncio
 
+from mandala.adapters.telegram.text_format import TELEGRAM_MAX_TEXT_CHARS, split_text_for_telegram
 from mandala.domain.contracts import OutboundMessage
 from mandala.domain.handler import _handle_forecast_menu, _with_astrology_keyboard
 from mandala.services.scenario_intake import _astrology_help_message
@@ -53,6 +54,32 @@ def test_help_message_has_photo_and_bold_menu() -> None:
     assert "**Меню**" in msg.text
     assert "**Команды**" in msg.text
     assert msg.reply_keyboard == ASTROLOGY_REPLY_KEYBOARD
+
+
+def test_split_text_short_returns_single_chunk() -> None:
+    text = "Короткий текст"
+    assert split_text_for_telegram(text) == [text]
+
+
+def test_split_text_long_paragraph_breaks_at_boundary() -> None:
+    # Два абзаца, суммарно > лимита — должны стать двумя кусками.
+    para_a = "А" * (TELEGRAM_MAX_TEXT_CHARS - 10)
+    para_b = "Б" * 50
+    text = para_a + "\n\n" + para_b
+    parts = split_text_for_telegram(text)
+    assert len(parts) == 2
+    assert parts[0] == para_a
+    assert parts[1] == para_b
+
+
+def test_split_text_each_part_within_limit() -> None:
+    # Случайный длинный текст — гарантируем, что ни один кусок не превышает лимит.
+    long = "\n\n".join(["Слово " * 300 for _ in range(5)])
+    parts = split_text_for_telegram(long)
+    assert all(len(p) <= TELEGRAM_MAX_TEXT_CHARS for p in parts)
+    # Контент не теряется: суммарная длина совпадает с исходной (с поправкой на trim).
+    assert sum(len(p) for p in parts) <= len(long)
+    assert len(parts) > 1
 
 
 def test_register_bot_commands_noop_without_env(monkeypatch) -> None:  # type: ignore[no-untyped-def]

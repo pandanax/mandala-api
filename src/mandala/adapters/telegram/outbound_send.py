@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID
 
 from mandala.adapters.telegram.bot_api import TelegramApiError, TelegramBotApiClient
-from mandala.adapters.telegram.text_format import format_llm_text_for_telegram_html
+from mandala.adapters.telegram.text_format import format_llm_text_for_telegram_html, split_text_for_telegram
 from mandala.domain import OutboundMessage
 from mandala.observability import op_format
 
@@ -145,5 +145,11 @@ def deliver_outbound_messages(
                 reply_markup=markup,
             )
         elif msg.text is not None:
-            _send_message_html_or_plain(api, chat_id=chat_id, text=msg.text, reply_markup=markup)
+            parts = split_text_for_telegram(msg.text)
+            for i, part in enumerate(parts):
+                # Клавиатуру (reply_markup) крепим только к последнему куску.
+                part_markup = markup if i == len(parts) - 1 else None
+                _send_message_html_or_plain(
+                    api, chat_id=chat_id, text=part, reply_markup=part_markup
+                )
         # TODO(тикет 12+): ``requires_payment``, ``defer`` — сценарии оплаты и отложенных ответов.

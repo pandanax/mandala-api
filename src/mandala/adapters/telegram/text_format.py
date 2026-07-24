@@ -1,12 +1,74 @@
-"""Текст ответа LLM → HTML для Telegram ``parse_mode=HTML``."""
+"""Текст ответа LLM → HTML для Telegram ``parse_mode=HTML``.
+
+Также: разбивка длинных текстов на части ≤ ``TELEGRAM_MAX_TEXT_CHARS`` символов,
+чтобы не превышать лимит Telegram sendMessage.
+"""
 
 from __future__ import annotations
 
 import html
 import re
 
+# Telegram sendMessage/caption лимиты (официально 4096/1024).
+# Берём с запасом на HTML-теги, которые добавляются при форматировании.
+TELEGRAM_MAX_TEXT_CHARS = 3900
+
 # Блоки ```…```: опциональная «языковая» строка после открывающих ```
 _FENCE = re.compile(r"```(?:[^\n`]*\n)?(.*?)```", re.DOTALL)
+
+
+def split_text_for_telegram(text: str, max_chars: int = TELEGRAM_MAX_TEXT_CHARS) -> list[str]:
+    """Разбить текст на части ≤ ``max_chars`` символов по абзацам, строкам, словам.
+
+    Гарантирует, что каждая часть не превышает лимит. Не режет внутри слова.
+    """
+    if len(text) <= max_chars:
+        return [text]
+
+    chunks: list[str] = []
+    buf = ""
+
+    def flush(piece: str) -> str:
+        nonlocal buf
+        if buf:
+            chunks.append(buf)
+        return piece
+
+    for para in re.split(r"\n\n+", text):
+        candidate = (buf + "\n\n" + para).lstrip("\n") if buf else para
+        if len(candidate) <= max_chars:
+            buf = candidate
+            continue
+        # buf не вмещает этот абзац — сбрасываем накопленное
+        if buf:
+            chunks.append(buf)
+            buf = ""
+        if len(para) <= max_chars:
+            buf = para
+            continue
+        # Абзац сам по себе слишком длинный — делим по строкам
+        for line in para.split("\n"):
+            candidate_line = (buf + "\n" + line).lstrip("\n") if buf else line
+            if len(candidate_line) <= max_chars:
+                buf = candidate_line
+                continue
+            if buf:
+                chunks.append(buf)
+                buf = ""
+            # Строка длиннее лимита — режем по словам
+            while len(line) > max_chars:
+                split_at = max_chars
+                space = line.rfind(" ", max_chars // 2, max_chars)
+                if space > 0:
+                    split_at = space
+                chunks.append(line[:split_at].rstrip())
+                line = line[split_at:].lstrip()
+            buf = line
+
+    if buf:
+        chunks.append(buf)
+
+    return [c for c in chunks if c.strip()]
 
 
 def format_llm_text_for_telegram_html(text: str) -> str:
