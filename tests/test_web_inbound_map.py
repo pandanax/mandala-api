@@ -57,3 +57,22 @@ def test_inbound_event_from_web_strips_and_optional_fields() -> None:
 def test_inbound_event_from_web_rejects_empty_external() -> None:
     with pytest.raises(ValueError, match="external_user_id"):
         inbound_event_from_web(vertical_id="astrology", external_user_id="   ")
+
+
+def test_outbound_message_buttons_serialize_to_json() -> None:
+    """buttons в OutboundMessage попадают в JSON-ответ без потерь (round-trip для Web-канала)."""
+    from mandala.domain.contracts import OutboundMessage
+
+    msg = OutboundMessage(
+        text="Выберите действие",
+        buttons=[
+            [{"text": "Натальная карта", "callback_data": "mdl:natal"}],
+            [{"text": "Сайт", "url": "https://mandala-app.online"}],
+        ],
+    )
+    dumped = msg.model_dump()
+    assert dumped["buttons"] == [
+        [{"text": "Натальная карта", "callback_data": "mdl:natal"}],
+        [{"text": "Сайт", "url": "https://mandala-app.online"}],
+    ]
+    assert dumped["text"] == "Выберите действие"

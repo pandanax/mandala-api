@@ -143,3 +143,29 @@ def test_deliver_inline_keyboard() -> None:
     assert call is not None
     markup = call.kwargs["reply_markup"]
     assert markup == {"inline_keyboard": [[{"text": "OK", "callback_data": "ok"}]]}
+
+
+def test_deliver_inline_keyboard_url_button() -> None:
+    api = MagicMock()
+    deliver_outbound_messages(
+        api,
+        chat_id=3,
+        messages=[
+            OutboundMessage(
+                text="t",
+                buttons=[[{"text": "Сайт", "url": "https://example.com"}]],
+            )
+        ],
+    )
+    markup = api.send_message.call_args.kwargs["reply_markup"]
+    assert markup == {"inline_keyboard": [[{"text": "Сайт", "url": "https://example.com"}]]}
+    # URL-кнопка не должна содержать callback_data
+    assert "callback_data" not in markup["inline_keyboard"][0][0]
+
+
+def test_deliver_no_buttons_sends_no_reply_markup() -> None:
+    api = MagicMock()
+    deliver_outbound_messages(api, chat_id=4, messages=[OutboundMessage(text="plain")])
+    call = api.send_message.call_args
+    assert call is not None
+    assert call.kwargs["reply_markup"] is None

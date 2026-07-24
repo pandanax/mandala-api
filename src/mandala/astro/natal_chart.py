@@ -79,7 +79,7 @@ def _geocode_city(city: str) -> tuple[float, float, str]:
     lng = float(data[0]["lon"])
 
     try:
-        from timezonefinder import TimezoneFinder  # type: ignore[import-not-found]
+        from timezonefinder import TimezoneFinder
 
         tf = TimezoneFinder()
         tz_str = tf.timezone_at(lat=lat, lng=lng) or "UTC"
@@ -119,7 +119,7 @@ def calculate_natal_chart(
         dict с полями sun_sign, moon_sign, ascendant, planets, aspects,
         chart_system, calculated_at, birth_place_resolved.
     """
-    from kerykeion import AstrologicalSubject  # type: ignore[import-not-found]
+    from kerykeion import AstrologicalSubject
 
     # --- парсинг даты ---
     try:
@@ -203,15 +203,14 @@ def calculate_natal_chart(
     # --- аспекты ---
     aspects: list[dict[str, Any]] = []
     try:
-        from kerykeion.aspects import NatalAspects  # type: ignore[import-not-found]
+        from kerykeion.aspects.aspects_factory import AspectsFactory
 
-        na = NatalAspects(subject, subject)
-        raw_aspects = getattr(na, "all_aspects", [])
-        for asp in raw_aspects[:30]:  # первые 30 достаточно
-            p1 = _planet_ru(getattr(asp, "p1_name", "") or "")
-            p2 = _planet_ru(getattr(asp, "p2_name", "") or "")
-            asp_name = _aspect_ru(getattr(asp, "aspect", "") or "")
-            orb = round(float(getattr(asp, "orbit", 0)), 2)
+        result = AspectsFactory.single_chart_aspects(subject.model())
+        for asp in result.aspects[:30]:  # первые 30 достаточно
+            p1 = _planet_ru(asp.p1_name or "")
+            p2 = _planet_ru(asp.p2_name or "")
+            asp_name = _aspect_ru(asp.aspect or "")
+            orb = round(float(asp.orbit), 2)
             if p1 and p2 and asp_name:
                 aspects.append({"planet1": p1, "planet2": p2, "aspect": asp_name, "orb": orb})
     except Exception as exc:

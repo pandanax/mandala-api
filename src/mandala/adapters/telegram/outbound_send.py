@@ -7,7 +7,10 @@ from typing import Any
 from uuid import UUID
 
 from mandala.adapters.telegram.bot_api import TelegramApiError, TelegramBotApiClient
-from mandala.adapters.telegram.text_format import format_llm_text_for_telegram_html, split_text_for_telegram
+from mandala.adapters.telegram.text_format import (
+    format_llm_text_for_telegram_html,
+    split_text_for_telegram,
+)
 from mandala.domain import OutboundMessage
 from mandala.observability import op_format
 
@@ -89,8 +92,12 @@ def _buttons_to_reply_markup(buttons: list[list[dict[str, str]]]) -> dict[str, A
         line: list[dict[str, str]] = []
         for cell in row:
             text = cell.get("text", "")
-            cb = cell.get("callback_data", text)
-            line.append({"text": text, "callback_data": cb})
+            btn: dict[str, str] = {"text": text}
+            if "url" in cell:
+                btn["url"] = cell["url"]
+            else:
+                btn["callback_data"] = cell.get("callback_data", text)
+            line.append(btn)
         rows.append(line)
     return {"inline_keyboard": rows}
 
