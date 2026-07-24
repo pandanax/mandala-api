@@ -1,8 +1,8 @@
 # Mandala HTTP. Сборка: podman build -f Containerfile -t mandala:local .
-# Режимы HOST:
-#   127.0.0.1 — за nginx на VM (scripts/deploy/deploy.sh)
-#   0.0.0.0   — Yandex Serverless Container (scripts/deploy/deploy-serverless.sh)
-# Значение HOST задаётся через env при запуске контейнера.
+# Режимы HOST и PORT:
+#   VM + nginx: HOST=0.0.0.0, PORT=8000 (override через env при запуске; nginx → 127.0.0.1:8000 устарело)
+#   Yandex Serverless Container: HOST=0.0.0.0, PORT=8080 (дефолт образа; YC маршрутизирует на EXPOSE-порт)
+# HOST и PORT задаются через env при запуске контейнера.
 
 FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim AS builder
 WORKDIR /app
@@ -31,9 +31,9 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PORT=8080
 
 USER mandala
-EXPOSE 8000
+EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=5)"
 
 CMD ["python", "-m", "mandala.http"]
