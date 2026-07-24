@@ -247,6 +247,10 @@ def handle_inbound_text_llm(
         if event.vertical_id.strip() == "astrology"
         else (reply, {})
     )
+    # Защита от пустого ответа: если после отделения agent-card suffix ничего не осталось,
+    # откатываемся на исходный reply, а в крайнем случае — на сообщение о недоступности.
+    if not cleaned_reply.strip():
+        cleaned_reply = reply.strip() or MSG_LLM_UNAVAILABLE
     if agent_patch:
         ProfileRepository(conn).merge_agent_card(user_id, agent_patch)
 

@@ -135,9 +135,7 @@ def calculate_natal_chart(
             t_parts = birth_time.strip().split(":")
             hour, minute = int(t_parts[0]), int(t_parts[1])
         except Exception as exc:
-            raise ValueError(
-                f"Invalid birth_time format '{birth_time}', expected HH:MM"
-            ) from exc
+            raise ValueError(f"Invalid birth_time format '{birth_time}', expected HH:MM") from exc
     else:
         hour, minute = 12, 0  # полдень при неизвестном времени
 
@@ -168,8 +166,16 @@ def calculate_natal_chart(
 
     # --- извлечение планет ---
     planet_attrs = [
-        "sun", "moon", "mercury", "venus", "mars",
-        "jupiter", "saturn", "uranus", "neptune", "pluto",
+        "sun",
+        "moon",
+        "mercury",
+        "venus",
+        "mars",
+        "jupiter",
+        "saturn",
+        "uranus",
+        "neptune",
+        "pluto",
     ]
     planets: dict[str, dict[str, Any]] = {}
     for attr in planet_attrs:
