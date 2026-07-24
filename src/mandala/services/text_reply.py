@@ -23,6 +23,7 @@ from uuid import UUID
 
 from sqlalchemy.engine import Connection
 
+from mandala.astro.natal_chart import natal_chart_to_system_text
 from mandala.domain.contracts import InboundEvent, OutboundMessage
 from mandala.llm import ChatMessage, TextCompletionClient
 from mandala.llm.exceptions import LlmProviderError
@@ -39,6 +40,7 @@ from mandala.services.llm_time_context import build_llm_time_context_block
 from mandala.services.quota import RESOURCE_TEXT_REPLY, QuotaService
 from mandala.verticals import get_vertical_system_prompt
 from mandala.verticals.client_knowledge import (
+    AGENT_CARD_NATAL_CHART_DATA,
     AGENT_CARD_NATAL_CHART_TEXT,
     split_llm_agent_card_suffix,
 )
@@ -155,8 +157,19 @@ def handle_inbound_text_llm(
                 f"{system_prompt}\n\nДанные клиента из анкеты (не переспрашивай без причины):\n"
                 + "\n".join(lines)
             )
-        natal_raw = card.get(AGENT_CARD_NATAL_CHART_TEXT)
-        if isinstance(natal_raw, str) and natal_raw.strip():
+        # Приоритет 1: математически рассчитанные данные (точность Swiss Ephemeris)
+        natal_data = card.get(AGENT_CARD_NATAL_CHART_DATA)
+        if isinstance(natal_data, dict) and natal_data:
+            try:
+                natal_block = natal_chart_to_system_text(natal_data)
+                system_prompt = f"{system_prompt}\n\n{natal_block}"
+            except Exception:
+                logger.warning("failed to format natal_chart_data for system prompt", exc_info=True)
+        # Приоритет 2: сохранённый LLM-текст карты (если математика недоступна)
+        elif (
+            isinstance(natal_raw := card.get(AGENT_CARD_NATAL_CHART_TEXT), str)
+            and natal_raw.strip()
+        ):
             snippet = natal_raw.strip()[:3500]
             system_prompt = (
                 f"{system_prompt}\n\nСохранённая натальная карта клиента "

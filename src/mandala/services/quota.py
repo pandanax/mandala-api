@@ -85,6 +85,22 @@ class QuotaService:
         Блокирует строку счётчика ``FOR UPDATE``. Узкий snapshot в транзакции ``conn``;
         для гарантии расхода используйте ``consume``.
         """
+        from mandala.services.promo import is_promo_active
+
+        if is_promo_active(user_id=user_id, vertical_id=vertical_id, conn=self._conn):
+            logger.info(
+                "funnel quota %s",
+                op_format(
+                    vertical_id=vertical_id,
+                    user_id=user_id,
+                    stage="can_consume",
+                    resource=resource,
+                    outcome="allow",
+                    reason="promo_active",
+                ),
+            )
+            return True
+
         users = UsersRepository(self._conn)
         plan_id = users.fetch_current_plan_id(user_id=user_id, vertical_id=vertical_id)
         if plan_id is None:

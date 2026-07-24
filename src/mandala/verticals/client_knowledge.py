@@ -11,6 +11,12 @@ logger = logging.getLogger(__name__)
 # Ключ в ``agent_card``: сохранённый текст натальной карты (не пересчитывается без запроса).
 AGENT_CARD_NATAL_CHART_TEXT = "natal_chart_text"
 
+# Ключ в ``agent_card``: математически рассчитанная натальная карта (dict от astro.natal_chart).
+AGENT_CARD_NATAL_CHART_DATA = "natal_chart_data"
+
+# Ключ в ``agent_card``: активная система (western/vedic).
+AGENT_CARD_ASTRO_SYSTEM = "astro_system"
+
 # Маркер в конце ответа ассистента (отдельная строка после ``\\n``).
 MANDALA_AGENT_CARD_MARKER = "---mandala---"
 

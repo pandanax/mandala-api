@@ -1,5 +1,8 @@
-# Mandala HTTP (тикет 23). Сборка: podman build -f Containerfile -t mandala:local .
-# В проде по целевой схеме: HOST=127.0.0.1 за Nginx; см. scripts/deploy/README.md
+# Mandala HTTP. Сборка: podman build -f Containerfile -t mandala:local .
+# Режимы HOST:
+#   127.0.0.1 — за nginx на VM (scripts/deploy/deploy.sh)
+#   0.0.0.0   — Yandex Serverless Container (scripts/deploy/deploy-serverless.sh)
+# Значение HOST задаётся через env при запуске контейнера.
 
 FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim AS builder
 WORKDIR /app
@@ -24,13 +27,13 @@ COPY alembic.ini ./alembic.ini
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
-    HOST=127.0.0.1 \
+    HOST=0.0.0.0 \
     PORT=8000
 
 USER mandala
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"
 
 CMD ["python", "-m", "mandala.http"]
