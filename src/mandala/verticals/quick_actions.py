@@ -33,6 +33,8 @@ _ASTROLOGY: dict[str, str] = {
     # Переключение астрологической системы
     "mdl:switch_western": "__switch_system:western__",
     "mdl:switch_vedic": "__switch_system:vedic__",
+    # Подменю прогноза
+    "mdl:forecast_menu": "__forecast_menu__",
     # Профиль и сброс
     "mdl:profile": "__show_profile__",
 }
@@ -40,6 +42,7 @@ _ASTROLOGY: dict[str, str] = {
 # Тексты кнопок ReplyKeyboard → код быстрого действия
 _KEYBOARD_TEXT_TO_CODE: dict[str, str] = {
     "🔮 Натальная карта": "mdl:natal",
+    "📊 Прогноз": "mdl:forecast_menu",
     "📅 Прогноз сегодня": "mdl:fc_today",
     "📆 На неделю": "mdl:fc_week",
     "🗓️ На месяц": "mdl:fc_month",
@@ -49,6 +52,7 @@ _KEYBOARD_TEXT_TO_CODE: dict[str, str] = {
     "💰 Финансы": "mdl:th_fin",
     "❤️ Отношения": "mdl:th_rel",
     "⚡ Здоровье": "mdl:th_health",
+    "👤 Профиль": "mdl:profile",
     "👤 Мой профиль": "mdl:profile",
     "🔄 Начать заново": "/reset",
 }
@@ -59,12 +63,12 @@ RESET_BUTTON_TEXT = "🔄 Начать заново"
 
 # Постоянная нижняя клавиатура для вертикали astrology
 ASTROLOGY_REPLY_KEYBOARD: list[list[str]] = [
-    ["🔮 Натальная карта", "📅 Прогноз сегодня"],
-    ["📆 На неделю", "🗓️ На месяц", "🔭 На год"],
-    ["🌟 Западная", "🕉️ Ведическая"],
-    ["💰 Финансы", "❤️ Отношения", "⚡ Здоровье"],
-    ["👤 Мой профиль", "🔄 Начать заново"],
+    ["🔮 Натальная карта", "📊 Прогноз"],
+    ["👤 Профиль", "🔄 Начать заново"],
 ]
+
+# Код-триггер подменю прогноза (не передаётся в LLM)
+FORECAST_MENU_CODE = "__forecast_menu__"
 
 _THERAPY: dict[str, str] = {
     "mdl_th:vent": "Хочется выговориться и привести мысли в порядок.",
@@ -110,6 +114,11 @@ def is_system_switch(text: str | None) -> tuple[bool, str]:
 def is_show_profile(text: str | None) -> bool:
     """Вернуть True если действие — показать профиль клиента."""
     return text is not None and text.strip() == "__show_profile__"
+
+
+def is_forecast_menu(text: str | None) -> bool:
+    """Вернуть True если нажата кнопка «Прогноз» (показать подменю периодов)."""
+    return text is not None and text.strip() == FORECAST_MENU_CODE
 
 
 def is_reset_button(text: str | None) -> bool:

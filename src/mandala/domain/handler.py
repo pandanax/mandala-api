@@ -19,7 +19,9 @@ from mandala.services.text_reply import handle_inbound_text_llm
 from mandala.services.user_identity import UserIdentityService
 from mandala.verticals.client_knowledge import AGENT_CARD_ASTRO_SYSTEM, AGENT_CARD_NATAL_CHART_DATA
 from mandala.verticals.quick_actions import (
+    ASTROLOGY_REPLY_KEYBOARD,
     expand_inbound_quick_action,
+    is_forecast_menu,
     is_reset_button,
     is_show_profile,
     is_system_switch,
@@ -115,6 +117,8 @@ def handle_inbound(
             )
         if is_show_profile(expanded):
             return _handle_show_profile(uid, event.vertical_id, profile.agent_card)
+        if is_forecast_menu(expanded):
+            return _handle_forecast_menu()
         event_for_pipeline = event.model_copy(update={"text": expanded})
 
     if post_intake_intent(event_for_pipeline.text) == "image":
@@ -128,9 +132,10 @@ def handle_inbound(
                 intent="image",
             ),
         )
-        return handle_inbound_image_generation(
+        image_result = handle_inbound_image_generation(
             conn, event_for_pipeline, uid, image_client=image_client
         )
+        return _with_astrology_keyboard(image_result, event.vertical_id)
     logger.info(
         "funnel inbound %s",
         op_format(
@@ -143,7 +148,7 @@ def handle_inbound(
     )
     raw_summary = profile.scenario_state.get("dialog_summary")
     dialog_summary = raw_summary.strip() if isinstance(raw_summary, str) else None
-    return handle_inbound_text_llm(
+    text_result = handle_inbound_text_llm(
         conn,
         event_for_pipeline,
         uid,
@@ -152,6 +157,44 @@ def handle_inbound(
         dialog_summary=dialog_summary,
         agent_card=profile.agent_card,
     )
+    return _with_astrology_keyboard(text_result, event.vertical_id)
+
+
+def _with_astrology_keyboard(
+    result: list[OutboundMessage],
+    vertical_id: str,
+) -> list[OutboundMessage]:
+    """Добавить постоянную клавиатуру к последнему сообщению вертикали astrology.
+
+    Клавиатура нужна в каждом ответе, иначе существующие пользователи её не видят.
+    Если у последнего сообщения уже задан ``reply_keyboard`` — не трогаем.
+    """
+    if vertical_id.strip() != "astrology" or not result:
+        return result
+    last = result[-1]
+    if last.reply_keyboard is None:
+        result[-1] = last.model_copy(update={"reply_keyboard": ASTROLOGY_REPLY_KEYBOARD})
+    return result
+
+
+def _handle_forecast_menu() -> list[OutboundMessage]:
+    """Показать inline-подменю выбора периода прогноза."""
+    return [
+        OutboundMessage(
+            text="Выберите период прогноза:",
+            buttons=[
+                [
+                    {"text": "📅 Сегодня", "callback_data": "mdl:fc_today"},
+                    {"text": "📆 Неделя", "callback_data": "mdl:fc_week"},
+                ],
+                [
+                    {"text": "🗓️ Месяц", "callback_data": "mdl:fc_month"},
+                    {"text": "🔭 Год", "callback_data": "mdl:fc_year"},
+                ],
+            ],
+            reply_keyboard=ASTROLOGY_REPLY_KEYBOARD,
+        )
+    ]
 
 
 def _handle_show_profile(
@@ -204,7 +247,7 @@ def _handle_show_profile(
     lines.append("")
     lines.append("Для сброса данных нажмите «🔄 Начать заново» или введите /reset.")
 
-    return [OutboundMessage(text="\n".join(lines))]
+    return [OutboundMessage(text="\n".join(lines), reply_keyboard=ASTROLOGY_REPLY_KEYBOARD)]
 
 
 def _handle_system_switch(

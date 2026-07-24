@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -12,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from mandala.adapters.telegram.billing_updates import process_telegram_billing_update
 from mandala.adapters.telegram.bot_api import TelegramBotApiClient
+from mandala.adapters.telegram.bot_commands import register_bot_commands_if_configured
 from mandala.adapters.telegram.bot_token import get_bot_token_for_vertical
 from mandala.adapters.telegram.callback_ack import answer_callback_query_if_present
 from mandala.adapters.telegram.inbound_map import telegram_update_to_inbound_event
@@ -33,12 +36,25 @@ def _telegram_update_is_billing(update: dict[str, Any]) -> bool:
     return False
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Старт/остановка приложения.
+
+    На старте регистрируем команды бота через ``setMyCommands``, чтобы после
+    каждого деплоя они автоматически подсвечивались в чате. Ошибку глотаем внутри
+    :func:`register_bot_commands_if_configured` — старт не должен падать.
+    """
+    await register_bot_commands_if_configured()
+    yield
+
+
 def create_app() -> FastAPI:
     """Создать и настроить FastAPI приложение."""
     app = FastAPI(
         title="Mandala HTTP API",
         description="HTTP приложение для обработки webhook и health checks (тикет 10)",
         version="0.1.0",
+        lifespan=_lifespan,
     )
     app.include_router(web_chat_router)
 

@@ -41,8 +41,11 @@ _INFO_COMMANDS = frozenset({"/help", "/about", "/info"})
 _PROMO_COMMANDS = frozenset({"/promo"})
 _TOPUP_COMMANDS = frozenset({"/topup"})
 _ALL_COMMANDS = (
-    _SOFT_RESTART_COMMANDS | _HARD_RESET_COMMANDS | _INFO_COMMANDS
-    | _PROMO_COMMANDS | _TOPUP_COMMANDS
+    _SOFT_RESTART_COMMANDS
+    | _HARD_RESET_COMMANDS
+    | _INFO_COMMANDS
+    | _PROMO_COMMANDS
+    | _TOPUP_COMMANDS
 )
 
 
@@ -152,9 +155,7 @@ def handle_intake_before_llm(
         kb = _get_reply_keyboard(event.vertical_id)
         if kb:
             msgs.append(
-                OutboundMessage(
-                    text="Кнопки быстрого доступа закреплены ниже ↓", reply_keyboard=kb
-                )
+                OutboundMessage(text="Кнопки быстрого доступа закреплены ниже ↓", reply_keyboard=kb)
             )
         return msgs
 
@@ -184,9 +185,9 @@ def _handle_promo_command(
         return [OutboundMessage(text="Укажите промо-код: /promo КОД")]
     activated = activate_promo(code=code, user_id=user_id, vertical_id=vertical_id, conn=conn)
     if activated:
-        return [OutboundMessage(
-            text="✅ Промо-код активирован! Подписка без ограничений навсегда."
-        )]
+        return [
+            OutboundMessage(text="✅ Промо-код активирован! Подписка без ограничений навсегда.")
+        ]
     return [OutboundMessage(text="❌ Неверный промо-код. Попробуйте другой.")]
 
 
@@ -265,6 +266,36 @@ _COMMANDS_HELP = (
     "• /help — это сообщение."
 )
 
+# Картинка для /help. Текст ниже — в markdown (**жирный**), который delivery-слой
+# конвертирует в HTML (см. format_llm_text_for_telegram_html): literal-<b> он бы экранировал.
+_HELP_PHOTO_URL = "https://upload.wikimedia.org/wikipedia/commons/d/d1/Zodiac_woodcut.png"
+_ASTROLOGY_HELP_TEXT = (
+    "🌟 **Mandala** — личный астрологический ассистент.\n\n"
+    "Я рассчитаю вашу натальную карту и помогу с прогнозами, разбором планет "
+    "и темами жизни.\n\n"
+    "**Меню** (кнопки внизу экрана):\n"
+    "🔮 Натальная карта — разбор вашей карты\n"
+    "📊 Прогноз — на сегодня, неделю, месяц или год\n"
+    "👤 Профиль — ваши данные\n"
+    "🔄 Начать заново — повторная анкета\n\n"
+    "**Команды** (наберите / чтобы увидеть список):\n"
+    "/start — заново (история сохраняется)\n"
+    "/reset — полный сброс профиля\n"
+    "/promo — промо-код\n"
+    "/help — это сообщение"
+)
+
+
+def _astrology_help_message() -> list[OutboundMessage]:
+    """Ответ на ``/help`` для astrology: картинка + описание меню и команд."""
+    return [
+        OutboundMessage(
+            text=_ASTROLOGY_HELP_TEXT,
+            photo=_HELP_PHOTO_URL,
+            reply_keyboard=_get_reply_keyboard("astrology"),
+        )
+    ]
+
 
 def _extract_command(user_text: str) -> str | None:
     """Если текст начинается с известной служебной команды — вернуть её в нижнем регистре.
@@ -310,6 +341,10 @@ def _handle_command(
     """
     greeting = _vertical_greeting(event.vertical_id)
 
+    # /help для astrology — отдельный ответ с картинкой и описанием меню/команд.
+    if command == "/help" and event.vertical_id.strip() == "astrology":
+        return _astrology_help_message()
+
     if command in _PROMO_COMMANDS:
         raw_text = (event.text or "").strip()
         parts = raw_text.split(maxsplit=1)
@@ -319,12 +354,14 @@ def _handle_command(
         )
 
     if command in _TOPUP_COMMANDS:
-        return [OutboundMessage(
-            text=(
-                "✅ Тест-режим: счётчики использования сброшены для текущего периода.\n"
-                "Ограничения временно сняты для тестирования."
+        return [
+            OutboundMessage(
+                text=(
+                    "✅ Тест-режим: счётчики использования сброшены для текущего периода.\n"
+                    "Ограничения временно сняты для тестирования."
+                )
             )
-        )]
+        ]
 
     if command in _HARD_RESET_COMMANDS:
         profiles = ProfileRepository(conn)
