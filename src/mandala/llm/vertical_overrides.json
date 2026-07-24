@@ -1,8 +1,8 @@
 {
   "astrology": {
-    "model": "deepseek-chat"
+    "model": "deepseek-v4-flash"
   },
   "therapy": {
-    "model": "deepseek-chat"
+    "model": "deepseek-v4-flash"
   }
 }
