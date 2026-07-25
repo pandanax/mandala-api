@@ -49,6 +49,8 @@ _ASTROLOGY: dict[str, str] = {
     "mdl:forecast_menu": "__forecast_menu__",
     # Профиль и сброс
     "mdl:profile": "__show_profile__",
+    # Апселл premium (оплата Telegram Stars)
+    "mdl:premium": "__premium_topup__",
 }
 
 # Тексты кнопок ReplyKeyboard → код быстрого действия
@@ -87,7 +89,15 @@ _THERAPY: dict[str, str] = {
     "mdl_th:vent": "Хочется выговориться и привести мысли в порядок.",
     "mdl_th:mood": "Сейчас тяжело с настроением — помоги разобраться, с чего начать.",
     "mdl_th:anx": "Чувствую сильную тревогу — помоги структурировать, что происходит.",
+    # Апселл premium (оплата Telegram Stars)
+    "mdl:premium": "__premium_topup__",
 }
+
+# Код-триггер апселла premium (не передаётся в LLM; в handler → счёт Stars).
+PREMIUM_TOPUP_CODE = "__premium_topup__"
+
+# callback_data кнопки апселла premium (общий для всех вертикалей).
+PREMIUM_BUTTON_CALLBACK = "mdl:premium"
 
 
 def sphere_followup_buttons() -> list[list[dict[str, str]]]:
@@ -151,6 +161,11 @@ def is_show_profile(text: str | None) -> bool:
 def is_forecast_menu(text: str | None) -> bool:
     """Вернуть True если нажата кнопка «Прогноз» (показать подменю периодов)."""
     return text is not None and text.strip() == FORECAST_MENU_CODE
+
+
+def is_premium_topup(text: str | None) -> bool:
+    """Вернуть True если действие — апселл premium (показать счёт Telegram Stars)."""
+    return text is not None and text.strip() == PREMIUM_TOPUP_CODE
 
 
 # Слова-интенты «прогноз» в свободном тексте и слова конкретного периода.

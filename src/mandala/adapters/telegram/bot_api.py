@@ -245,6 +245,37 @@ class TelegramBotApiClient:
         assert isinstance(out, dict)
         return out
 
+    def send_invoice(
+        self,
+        *,
+        chat_id: int,
+        title: str,
+        description: str,
+        payload: str,
+        prices: list[dict[str, Any]],
+        currency: str = "XTR",
+        provider_token: str = "",
+    ) -> dict[str, Any]:
+        """``sendInvoice`` — выставить счёт на оплату.
+
+        Для Telegram Stars ``currency='XTR'`` и ``provider_token=''`` (пустой — так Bot API
+        отличает оплату в звёздах). ``prices`` — список ``{'label': str, 'amount': int}``;
+        для XTR ``amount`` — число звёзд (не копейки). ``payload`` возвращается назад в
+        ``pre_checkout_query`` / ``successful_payment`` и служит маппингом на план.
+        """
+        p: dict[str, Any] = {
+            "chat_id": chat_id,
+            "title": title,
+            "description": description,
+            "payload": payload,
+            "currency": currency,
+            "prices": prices,
+            "provider_token": provider_token,
+        }
+        out = self.call("sendInvoice", p)
+        assert isinstance(out, dict)
+        return out
+
     def answer_callback_query(
         self,
         *,

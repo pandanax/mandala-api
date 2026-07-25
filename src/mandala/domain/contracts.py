@@ -81,6 +81,30 @@ class InboundEvent(BaseModel):
     )
 
 
+class StarsInvoice(BaseModel):
+    """Счёт на оплату Telegram Stars (валюта ``XTR``) для ``OutboundMessage``.
+
+    Канало-агностично: Telegram-адаптер выставляет его через ``sendInvoice``; другие
+    каналы, не умеющие Stars, поле игнорируют (безопасная деградация). ``payload``
+    совпадает с ``plans.external_product_id`` и служит для маппинга оплаты на план
+    (см. ``mandala.services.telegram_stars``).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(..., description="Заголовок счёта (видит пользователь).")
+    description: str = Field(..., description="Описание товара/подписки.")
+    payload: str = Field(
+        ...,
+        description="Внутренний ``invoice_payload`` = ``plans.external_product_id`` для маппинга.",
+    )
+    amount_stars: int = Field(
+        ...,
+        ge=1,
+        description="Цена в Telegram Stars (целое, ≥ 1). Единица валюты XTR — одна звезда.",
+    )
+
+
 class OutboundMessage(BaseModel):
     """Универсальное представление ответа пользователю.
 
@@ -123,6 +147,13 @@ class OutboundMessage(BaseModel):
         default=False,
         description=(
             "Признак UI оплаты (например Stars-only в Telegram); детали — в последующих тикетах."
+        ),
+    )
+    invoice: StarsInvoice | None = Field(
+        default=None,
+        description=(
+            "Счёт на оплату (Telegram Stars). Если задан — канал-адаптер выставляет счёт "
+            "(``sendInvoice``); каналы без поддержки Stars поле игнорируют."
         ),
     )
     defer: bool = Field(

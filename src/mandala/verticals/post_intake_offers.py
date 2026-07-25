@@ -6,10 +6,16 @@ from typing import Any
 
 from mandala.domain.contracts import OutboundMessage
 from mandala.verticals.client_knowledge import AGENT_CARD_NATAL_CHART_TEXT
+from mandala.verticals.quick_actions import PREMIUM_BUTTON_CALLBACK
 
 
 def _btn(text_label: str, callback_data: str) -> dict[str, str]:
     return {"text": text_label, "callback_data": callback_data}
+
+
+def _premium_upsell_row() -> list[dict[str, str]]:
+    """Кнопка апселла premium (клик → счёт Telegram Stars, см. ``handler``/``quick_actions``)."""
+    return [_btn("⭐ Premium", PREMIUM_BUTTON_CALLBACK)]
 
 
 def post_intake_completion_message(vertical_id: str, agent_card: dict[str, Any]) -> OutboundMessage:
@@ -54,6 +60,7 @@ def _astrology_completion(agent_card: dict[str, Any]) -> OutboundMessage:
             ],
             [_btn("Прогноз на год", "mdl:fc_year"), _btn("Совместимость", "mdl:syn")],
             [_btn("Обновить натальную карту", "mdl:natal")],
+            _premium_upsell_row(),
         ]
     else:
         text = base_intro
@@ -68,6 +75,7 @@ def _astrology_completion(agent_card: dict[str, Any]) -> OutboundMessage:
                 _btn("Прогноз на год", "mdl:fc_year"),
             ],
             [_btn("Совместимость", "mdl:syn")],
+            _premium_upsell_row(),
         ]
     return OutboundMessage(text=text, buttons=buttons)
 
@@ -84,5 +92,6 @@ def _therapy_completion() -> OutboundMessage:
                 _btn("Настроение", "mdl_th:mood"),
             ],
             [_btn("Тревога", "mdl_th:anx")],
+            _premium_upsell_row(),
         ],
     )

@@ -1,12 +1,14 @@
-"""Telegram Stars: pre_checkout и successful_payment → ``activate_plan`` (тикет 19)."""
+"""Telegram Stars: выставление счёта, pre_checkout, successful_payment → ``activate_plan``."""
 
 from __future__ import annotations
 
+import os
 from decimal import Decimal
 from typing import Any, Final
 
 from sqlalchemy.engine import Connection
 
+from mandala.domain.contracts import OutboundMessage, StarsInvoice
 from mandala.repositories.plans import PlansRepository
 from mandala.services.billing import (
     BILLING_PROVIDER_TELEGRAM_STARS,
@@ -18,7 +20,48 @@ from mandala.services.user_identity import UserIdentityService
 # Совпадает с seed/миграцией ``t19_01_telegram_stars`` (``plans.external_product_id``).
 STARS_INVOICE_PAYLOAD_PREMIUM: Final = "mandala_premium_stars"
 
+# Копирайт счёта premium (видит пользователь при оплате).
+STARS_PREMIUM_TITLE: Final = "Mandala Premium"
+STARS_PREMIUM_DESCRIPTION: Final = (
+    "Расширенный доступ: больше текстовых ответов и генераций изображений в месяц. "
+    "Оплата — Telegram Stars."
+)
+
+# Цена premium в звёздах. Значение — продуктовое, задаётся env-переменной
+# ``MANDALA_STARS_PREMIUM_PRICE`` (см. .env.example); дефолт — для локали/тестов.
+_PRICE_ENV: Final = "MANDALA_STARS_PREMIUM_PRICE"
+_DEFAULT_PREMIUM_PRICE_STARS: Final = 250
+
 _CHANNEL: Final = "telegram"
+
+
+def premium_price_stars() -> int:
+    """Цена premium в Stars: env ``MANDALA_STARS_PREMIUM_PRICE`` → дефолт (≥ 1)."""
+    raw = os.getenv(_PRICE_ENV)
+    if raw is None:
+        return _DEFAULT_PREMIUM_PRICE_STARS
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_PREMIUM_PRICE_STARS
+    return value if value >= 1 else _DEFAULT_PREMIUM_PRICE_STARS
+
+
+def build_premium_invoice_message() -> OutboundMessage:
+    """``OutboundMessage`` со счётом Stars на premium (payload ↔ план согласованы).
+
+    Единая точка инициации покупки: ``/topup``, апселл-кнопки и показ при исчерпании
+    квоты используют этот билдер, чтобы ``payload`` и цена не расходились.
+    """
+    return OutboundMessage(
+        requires_payment=True,
+        invoice=StarsInvoice(
+            title=STARS_PREMIUM_TITLE,
+            description=STARS_PREMIUM_DESCRIPTION,
+            payload=STARS_INVOICE_PAYLOAD_PREMIUM,
+            amount_stars=premium_price_stars(),
+        ),
+    )
 
 
 def handle_pre_checkout_query(

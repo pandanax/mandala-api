@@ -17,6 +17,7 @@ from mandala.services.intent_router import post_intake_intent
 from mandala.services.nav_protocol import resolve_nav_action
 from mandala.services.profile_view import build_profile_message
 from mandala.services.scenario_intake import handle_intake_before_llm
+from mandala.services.telegram_stars import build_premium_invoice_message
 from mandala.services.text_reply import handle_inbound_text_llm
 from mandala.services.user_identity import UserIdentityService
 from mandala.verticals.client_knowledge import AGENT_CARD_ASTRO_SYSTEM, AGENT_CARD_NATAL_CHART_DATA
@@ -25,6 +26,7 @@ from mandala.verticals.quick_actions import (
     expand_inbound_quick_action,
     is_forecast_menu,
     is_forecast_request,
+    is_premium_topup,
     is_reset_button,
     is_show_profile,
     is_system_switch,
@@ -152,6 +154,18 @@ def handle_inbound(
             )
         if is_show_profile(expanded):
             return _handle_show_profile(uid, event.vertical_id, profile.agent_card)
+        if is_premium_topup(expanded):
+            logger.info(
+                "funnel inbound %s",
+                op_format(
+                    vertical_id=event.vertical_id,
+                    user_id=uid,
+                    channel=event.channel,
+                    stage="route",
+                    intent="premium_topup",
+                ),
+            )
+            return [build_premium_invoice_message()]
         if is_forecast_menu(expanded):
             return _handle_forecast_menu()
         event_for_pipeline = event.model_copy(update={"text": expanded})

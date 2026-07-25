@@ -20,6 +20,7 @@ from mandala.domain.contracts import InboundEvent, OutboundMessage
 from mandala.repositories.messages import MessageRepository
 from mandala.repositories.profiles import ClientProfileDTO, ProfileRepository
 from mandala.services.profile_view import build_profile_message
+from mandala.services.telegram_stars import build_premium_invoice_message
 from mandala.services.text_reply import MSG_NEED_TEXT
 from mandala.verticals.client_knowledge import AGENT_CARD_ASTRO_SYSTEM, AGENT_CARD_NATAL_CHART_DATA
 from mandala.verticals.intake_config import IntakeStep, intake_steps_for_vertical
@@ -409,10 +410,11 @@ def _handle_command(
         return [
             OutboundMessage(
                 text=(
-                    "✅ Тест-режим: счётчики использования сброшены для текущего периода.\n"
-                    "Ограничения временно сняты для тестирования."
+                    "Premium снимает лимиты: больше текстовых ответов и генераций "
+                    "изображений в месяц. Оплата — Telegram Stars."
                 )
-            )
+            ),
+            build_premium_invoice_message(),
         ]
 
     if command in _HARD_RESET_COMMANDS:

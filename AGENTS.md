@@ -119,6 +119,28 @@ text pipeline (`handle_inbound` → `text_reply`) unchanged — the reply logic 
   the default** (`STT_LANGUAGE=ru`, empty = auto). Not configured (no URL+key) → voice degrades
   softly. Env documented in `.env.example`.
 
+## Telegram Stars: purchasing premium (invoice → activation)
+
+Full round-trip: invoice → `pre_checkout_query` → `successful_payment` → `activate_plan`.
+The receive half (pre_checkout/successful_payment, idempotent activation) is
+`services/telegram_stars.py` + `adapters/telegram/billing_updates.py`; the **send** half
+(invoice creation) is the piece added here.
+
+- **Single source of truth for the invoice** is `telegram_stars.build_premium_invoice_message()`:
+  it fills `OutboundMessage.invoice` (`StarsInvoice` in `domain/contracts.py`) with
+  `payload=STARS_INVOICE_PAYLOAD_PREMIUM` (= `plans.external_product_id`, migration
+  `t19_01`) and `amount_stars=premium_price_stars()`. Reuse it everywhere so payload↔plan and
+  price never diverge. Price is a product param: env `MANDALA_STARS_PREMIUM_PRICE` (default 250).
+- **Delivery**: `outbound_send.deliver_outbound_messages` sees `msg.invoice` and calls
+  `bot_api.send_invoice` (currency `XTR`, empty `provider_token` = Stars). An invoice message
+  is **terminal** — its text/photo/buttons are ignored (the invoice carries title/desc/price).
+  Channels without Stars ignore the field (safe degrade).
+- **Initiation points** (all just show the invoice, no reply-logic changes): `/topup`
+  (`scenario_intake.py`), the `⭐ Premium` upsell button in `verticals/post_intake_offers.py`
+  (callback `mdl:premium` → quick-action code `__premium_topup__` → routed in `domain/handler.py`
+  next to `is_show_profile`), and the quota-exceeded branches in
+  `services/text_reply.py` / `image_reply.py` (append the invoice after the limit message).
+
 ## Observability: metrics dashboard + logs (YC Monitoring)
 
 Full guide: `docs/monitoring.md`. Dashboard-as-code: `terraform/monitoring.tf`

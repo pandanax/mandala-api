@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from mandala.domain.contracts import InboundAttachment, InboundEvent, OutboundMessage
+from mandala.domain.contracts import (
+    InboundAttachment,
+    InboundEvent,
+    OutboundMessage,
+    StarsInvoice,
+)
 
 if TYPE_CHECKING:
     # Реальная сигнатура для type-checker'а; в рантайме символ грузится лениво
@@ -15,6 +20,7 @@ __all__ = [
     "InboundAttachment",
     "InboundEvent",
     "OutboundMessage",
+    "StarsInvoice",
     "handle_inbound",
 ]
 

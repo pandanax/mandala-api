@@ -45,6 +45,7 @@ from mandala.repositories.profiles import ProfileRepository
 from mandala.services.llm_time_context import build_llm_time_context_block
 from mandala.services.nav_protocol import assign_ids, split_llm_nav_suffix
 from mandala.services.quota import RESOURCE_TEXT_REPLY, QuotaService
+from mandala.services.telegram_stars import build_premium_invoice_message
 from mandala.verticals import get_vertical_system_prompt
 from mandala.verticals.client_knowledge import (
     AGENT_CARD_ASTRO_SYSTEM,
@@ -149,7 +150,7 @@ def handle_inbound_text_llm(
         vertical_id=event.vertical_id,
         resource=RESOURCE_TEXT_REPLY,
     ):
-        return [OutboundMessage(text=MSG_QUOTA_EXCEEDED)]
+        return [OutboundMessage(text=MSG_QUOTA_EXCEEDED), build_premium_invoice_message()]
 
     logger.info(
         "funnel llm %s",

@@ -179,6 +179,21 @@ def deliver_outbound_messages(
         bot_username = _resolve_bot_username(api)
 
     for msg in messages:
+        # Счёт на оплату (Telegram Stars): выставляем через sendInvoice. Счёт несёт свой
+        # заголовок/описание/цену, поэтому это терминальное сообщение — text/photo на нём
+        # не отправляем (builder такие поля не заполняет).
+        if msg.invoice is not None:
+            inv = msg.invoice
+            api.send_invoice(
+                chat_id=chat_id,
+                title=inv.title,
+                description=inv.description,
+                payload=inv.payload,
+                prices=[{"label": inv.title, "amount": inv.amount_stars}],
+                currency="XTR",
+            )
+            continue
+
         markup: dict[str, Any] | None = None
         if msg.reply_keyboard:
             markup = _reply_keyboard_to_markup(msg.reply_keyboard)
@@ -208,4 +223,4 @@ def deliver_outbound_messages(
                     term_links=msg.term_links,
                     bot_username=bot_username,
                 )
-        # TODO(тикет 12+): ``requires_payment``, ``defer`` — сценарии оплаты и отложенных ответов.
+        # TODO(тикет 12+): ``defer`` — сценарий отложенных ответов (оплата — см. ``invoice`` выше).
