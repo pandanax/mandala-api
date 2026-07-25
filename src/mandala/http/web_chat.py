@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 from typing import Annotated
 
+from anyio import to_thread
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.engine import Engine
 
 from mandala.adapters.web.inbound_map import inbound_event_from_web, resolve_web_vertical_id
-from mandala.domain.contracts import OutboundMessage
+from mandala.domain.contracts import InboundEvent, OutboundMessage
 from mandala.domain.handler import handle_inbound
 from mandala.http.engine_access import get_engine
 from mandala.observability import op_format
@@ -17,6 +20,18 @@ from mandala.observability import op_format
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["web"])
+
+
+def _run_inbound_sync(engine: Engine, event: InboundEvent) -> list[OutboundMessage]:
+    """Синхронный ход: одна транзакция ``engine.begin()`` вокруг ``handle_inbound``.
+
+    Исполняется в worker-потоке (см. вызов ниже), поэтому сетевой LLM-вызов внутри
+    ``handle_inbound`` не блокирует event-loop. Транзакция открыта и закоммичена в
+    одном потоке — семантика и идемпотентность (списание квоты после успешного
+    ответа) не меняются.
+    """
+    with engine.begin() as conn:
+        return handle_inbound(event, conn)
 
 
 class WebChatRequestBody(BaseModel):
@@ -107,8 +122,11 @@ async def web_inbound_chat(
 
     try:
         engine = get_engine()
-        with engine.begin() as conn:
-            outbound_messages = handle_inbound(event, conn)
+        # Синхронный ход уводим в worker-поток — event-loop не блокируется на время
+        # БД-транзакции и сетевого LLM-вызова, параллельные запросы не сериализуются.
+        outbound_messages = await to_thread.run_sync(
+            functools.partial(_run_inbound_sync, engine, event)
+        )
     except Exception:
         logger.exception(
             "funnel web_inbound %s",

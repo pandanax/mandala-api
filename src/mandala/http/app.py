@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
+from anyio import to_thread
 from fastapi import FastAPI, HTTPException, Request, Response
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -20,7 +21,7 @@ from mandala.adapters.telegram.bot_commands import register_bot_commands_if_conf
 from mandala.adapters.telegram.bot_token import get_bot_token_for_vertical
 from mandala.adapters.telegram.callback_ack import answer_callback_query_if_present
 from mandala.adapters.telegram.inbound_map import telegram_update_to_inbound_event
-from mandala.adapters.telegram.webhook_delivery import process_telegram_webhook_update
+from mandala.adapters.telegram.webhook_delivery import process_telegram_webhook_update_async
 from mandala.http.engine_access import get_engine
 from mandala.http.web_chat import router as web_chat_router
 from mandala.llm.factory import log_effective_models
@@ -145,14 +146,21 @@ def create_app() -> FastAPI:
                     raise HTTPException(
                         status_code=500, detail="Bot token not configured for this vertical"
                     )
-                with TelegramBotApiClient(bot_token) as api:
-                    if process_telegram_billing_update(
-                        update_data,
-                        vertical_id=vertical_id,
-                        engine=engine,
-                        api=api,
-                    ):
-                        return {"status": "ok"}
+                token = bot_token
+
+                # Синхронный биллинг-ход (БД + Telegram API) уводим в worker-поток,
+                # чтобы не блокировать event-loop; сама идемпотентная логика не меняется.
+                def _run_billing() -> bool:
+                    with TelegramBotApiClient(token) as api:
+                        return process_telegram_billing_update(
+                            update_data,
+                            vertical_id=vertical_id,
+                            engine=engine,
+                            api=api,
+                        )
+
+                if await to_thread.run_sync(_run_billing):
+                    return {"status": "ok"}
 
             event = telegram_update_to_inbound_event(update_data, vertical_id=vertical_id)
             if event is None:
@@ -181,7 +189,7 @@ def create_app() -> FastAPI:
                     )
                 return {"status": "ignored"}
 
-            process_telegram_webhook_update(update_data, vertical_id=vertical_id)
+            await process_telegram_webhook_update_async(update_data, vertical_id=vertical_id)
             return {"status": "ok"}
 
         except Exception as e:

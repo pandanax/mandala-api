@@ -100,6 +100,31 @@ object `{"<vertical>": "<token>"}` → **3)** legacy `TELEGRAM_BOT_TOKEN` + `TEL
   shared engine; single-entry map delegates to `run_polling_forever`). `python -m
   mandala.adapters.telegram` polls every configured vertical. Env documented in `.env.example`.
 
+## Request path: sync turn runs off the event-loop (non-blocking)
+
+The reply turn is synchronous by design — sync SQLAlchemy engine, sync repos, sync httpx
+LLM client — and one `engine.begin()` transaction is held across the LLM network call
+(read-timeout up to 120s). Running that directly in an async handler blocks the FastAPI
+event-loop and serializes every concurrent turn (YC `concurrency 16` never materializes).
+Fix: **the whole sync turn is offloaded to a worker thread via `anyio.to_thread.run_sync`**
+at each async boundary; the sync stack itself is unchanged (least-risky option from the
+architecture review).
+
+- **Both entries** offload: web is `_run_inbound_sync` in `http/web_chat.py`; Telegram
+  webhook is `process_telegram_webhook_update_async` (wraps the unchanged sync
+  `process_telegram_webhook_update`) in `adapters/telegram/webhook_delivery.py`, awaited in
+  `http/app.py`. The Stars **billing** update in `http/app.py` is offloaded the same way.
+- **Correctness is preserved** because the transaction opens and commits inside the *one*
+  worker thread — transactionality and quota/payment idempotency are unchanged; quota is
+  still deducted after a successful reply, inside the same transaction. Each turn builds its
+  own LLM client + Telegram client, so no shared mutable state crosses threads.
+- **DB pool is sized for concurrency** in `db/engine.py` (`DB_POOL_SIZE`/`DB_MAX_OVERFLOW`/
+  `DB_POOL_TIMEOUT`, defaults cover `concurrency 16`); otherwise turns would re-serialize
+  waiting for a pooled connection. `anyio`'s default thread limiter (40) is the other bound.
+- **Polling** already runs each turn in its own daemon thread — not on the event-loop — so it
+  is unchanged. Regression: `tests/test_reqpath_concurrency.py` proves a slow turn for one
+  user does not serialize another (both entries), with a negative control in its docstring.
+
 ## Voice messages: STT (speech → text) before the normal pipeline
 
 Telegram `voice`/`audio` messages are transcribed to text, then flow through the **existing**

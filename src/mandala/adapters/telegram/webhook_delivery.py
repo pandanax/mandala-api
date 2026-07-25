@@ -1,9 +1,20 @@
-"""Синхронная обработка webhook: БД + доставка + ``answerCallbackQuery``."""
+"""Синхронная обработка webhook: БД + доставка + ``answerCallbackQuery``.
+
+Синхронный ход (`engine.begin()` удерживается через сетевой LLM-вызов с read-timeout
+до 120 с) НЕ должен исполняться прямо в event-loop: это блокирует loop и сериализует
+все параллельные webhook'и. Точка входа из async-хендлера —
+:func:`process_telegram_webhook_update_async`, которая уводит всю синхронную работу в
+worker-поток (`anyio.to_thread.run_sync`). Сама логика остаётся синхронной и
+неизменной — движок, репозитории и LLM-клиент не переписываются.
+"""
 
 from __future__ import annotations
 
+import functools
 import logging
 from typing import Any
+
+from anyio import to_thread
 
 from mandala.adapters.telegram.bot_api import TelegramBotApiClient
 from mandala.adapters.telegram.bot_token import get_bot_token_for_vertical
@@ -122,3 +133,24 @@ def process_telegram_webhook_update(
             "funnel webhook %s",
             op_format(vertical_id=vertical_id, stage="webhook_processing_error", update_id=upd_id),
         )
+
+
+async def process_telegram_webhook_update_async(
+    update_data: dict[str, Any],
+    *,
+    vertical_id: str,
+) -> None:
+    """Неблокирующая обёртка над :func:`process_telegram_webhook_update`.
+
+    Уводит весь синхронный ход (БД-транзакция + сетевой LLM-вызов + доставка) в
+    worker-поток, чтобы не блокировать event-loop FastAPI. Транзакция открывается и
+    коммитится внутри одного потока — семантика транзакций и идемпотентность квот/
+    платежей полностью сохраняются.
+    """
+    await to_thread.run_sync(
+        functools.partial(
+            process_telegram_webhook_update,
+            update_data,
+            vertical_id=vertical_id,
+        )
+    )
