@@ -317,6 +317,20 @@ def _extract_command(user_text: str) -> str | None:
     return None
 
 
+def _greeting_then_intake(greeting: str, prompt: str) -> list[OutboundMessage]:
+    """Приветствие и вопрос анкеты — РАЗНЫМИ сообщениями.
+
+    Вопрос анкеты («как к вам обращаться…») — это уже начало нового диалога сбора
+    данных, поэтому его нельзя склеивать с приветствием в один пузырь (плохой UX в
+    Telegram). Если вопроса нет (нет шагов) — возвращаем только приветствие.
+    """
+    out = [OutboundMessage(text=greeting.rstrip())]
+    question = (prompt or "").strip()
+    if question:
+        out.append(OutboundMessage(text=question))
+    return out
+
+
 def _handle_command(
     *,
     conn: Connection,
@@ -376,10 +390,8 @@ def _handle_command(
             n_deleted,
         )
         first_prompt = steps[0].prompt if steps else ""
-        body = (
-            f"Готово, я всё забыл — начинаем с чистого листа.\n\n{greeting}\n\n{first_prompt}"
-        ).rstrip()
-        return [OutboundMessage(text=body)]
+        welcome = f"Готово, я всё забыл — начинаем с чистого листа.\n\n{greeting}"
+        return _greeting_then_intake(welcome, first_prompt)
 
     if command in _SOFT_RESTART_COMMANDS:
         ProfileRepository(conn).merge_scenario_state(
@@ -391,8 +403,7 @@ def _handle_command(
             },
         )
         first_prompt = steps[0].prompt if steps else ""
-        body = f"{greeting}\n\n{first_prompt}".rstrip()
-        return [OutboundMessage(text=body)]
+        return _greeting_then_intake(greeting, first_prompt)
 
     # info-команды: без побочных эффектов
     if intake_complete:
@@ -413,5 +424,4 @@ def _handle_command(
     if idx < 0 or idx >= len(steps):
         idx = 0
     cur_prompt = steps[idx].prompt if steps else ""
-    body = f"{greeting}\n\n{cur_prompt}".rstrip()
-    return [OutboundMessage(text=body)]
+    return _greeting_then_intake(greeting, cur_prompt)

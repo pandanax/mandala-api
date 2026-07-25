@@ -188,6 +188,11 @@ def test_reset_command_clears_profile_and_messages(engine: Engine) -> None:
     assert out_reset and out_reset[0].text
     text_reset = out_reset[0].text or ""
     assert "забыл" in text_reset.lower() or "чистого" in text_reset.lower()
+    # приветствие и первый вопрос анкеты — РАЗНЫМИ сообщениями (не склеены)
+    assert len(out_reset) >= 2
+    assert "имя" not in text_reset.lower() and "фамил" not in text_reset.lower()
+    last_reset = (out_reset[-1].text or "").lower()
+    assert "имя" in last_reset or "фамил" in last_reset
 
     with engine.begin() as conn:
         uid = UserIdentityService(conn).get_or_create_user(
@@ -202,6 +207,29 @@ def test_reset_command_clears_profile_and_messages(engine: Engine) -> None:
     assert prof_after.agent_card == {}
     assert prof_after.scenario_state == {}
     assert n_msg_after == 0
+
+
+def test_start_splits_greeting_and_first_question(engine: Engine) -> None:
+    """``/start``: приветствие и первый вопрос анкеты — РАЗНЫМИ сообщениями, не склеены."""
+    ext = f"intake-start-split-{uuid4()}"
+    v = "astrology"
+    ev = InboundEvent(vertical_id=v, channel="telegram", external_user_id=ext, text="/start")
+    with engine.begin() as conn:
+        uid = UserIdentityService(conn).get_or_create_user(
+            vertical_id=v, channel="telegram", external_user_id=ext
+        )
+        ProfileRepository(conn).ensure_row(user_id=uid, vertical_id=v)
+    with engine.begin() as conn:
+        out = handle_inbound(ev, conn)
+
+    assert len(out) >= 2, "приветствие и вопрос анкеты должны быть разными сообщениями"
+    greeting = (out[0].text or "").lower()
+    question = (out[-1].text or "").lower()
+    # приветствие — отдельным сообщением и БЕЗ вопроса про имя
+    assert "mandala" in greeting or "здравствуйте" in greeting
+    assert "имя" not in greeting and "фамил" not in greeting
+    # первый вопрос анкеты («как обращаться / имя-фамилия») — отдельным сообщением
+    assert "имя" in question or "фамил" in question
 
 
 class _Stub:
