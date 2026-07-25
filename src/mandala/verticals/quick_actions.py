@@ -30,6 +30,18 @@ _ASTROLOGY: dict[str, str] = {
         "Сделай мягкий тематический разбор натальной карты в части энергии и режима: "
         "без медицинских диагнозов и назначений."
     ),
+    "mdl:th_personality": (
+        "Сделай тематический разбор натальной карты: личность, характер, сильные стороны "
+        "и ключевые черты темперамента."
+    ),
+    "mdl:th_career": (
+        "Сделай тематический разбор натальной карты: карьера, предназначение, таланты "
+        "и сферы профессиональной реализации."
+    ),
+    "mdl:th_partner": (
+        "Сделай тематический разбор натальной карты: партнёрство и брак, "
+        "какой партнёр подходит по карте и паттерны в близких отношениях."
+    ),
     # Переключение астрологической системы
     "mdl:switch_western": "__switch_system:western__",
     "mdl:switch_vedic": "__switch_system:vedic__",
@@ -75,6 +87,25 @@ _THERAPY: dict[str, str] = {
     "mdl_th:mood": "Сейчас тяжело с настроением — помоги разобраться, с чего начать.",
     "mdl_th:anx": "Чувствую сильную тревогу — помоги структурировать, что происходит.",
 }
+
+
+def sphere_followup_buttons() -> list[list[dict[str, str]]]:
+    """Inline-кнопки сфер жизни для продолжения разбора натальной карты.
+
+    Показываются после содержательных LLM-ответов в вертикали astrology.
+    """
+    return [
+        [
+            {"text": "🧑 Личность", "callback_data": "mdl:th_personality"},
+            {"text": "❤️ Отношения", "callback_data": "mdl:th_rel"},
+            {"text": "💍 Партнёр", "callback_data": "mdl:th_partner"},
+        ],
+        [
+            {"text": "💼 Карьера", "callback_data": "mdl:th_career"},
+            {"text": "💰 Финансы", "callback_data": "mdl:th_fin"},
+            {"text": "⚡ Здоровье", "callback_data": "mdl:th_health"},
+        ],
+    ]
 
 
 def expand_inbound_quick_action(vertical_id: str, text: str | None) -> str | None:

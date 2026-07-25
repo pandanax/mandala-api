@@ -2,7 +2,7 @@
 
 > Достоверное описание архитектуры и реально работающих фич на момент написания.
 > Подтверждено кодом: `src/mandala/**`, тестами `tests/**`, миграциями `alembic/versions/`.
-> Последнее обновление: 2025-07 (ветка `gnhf-night`).
+> Последнее обновление: 2026-07 (ветка `gnhf-night-2`).
 
 ## Продукт
 
@@ -74,6 +74,8 @@ Observability (observability.py) # op_format, mask_api_key
 - Планеты: Солнце, Луна, Меркурий, Венера, Марс, Юпитер, Сатурн, Уран, Нептун, Плутон
 - Аспекты: через `AspectsFactory.single_chart_aspects()` (kerykeion v4+)
 - Асцендент: при известном времени рождения
+- **Текущие транзиты**: `calculate_current_transits(year, month, day)` — позиции планет на заданную дату, инжектируются в system-промпт LLM через `current_transits_to_system_text()`
+- **Geocoding failsafe**: `ValueError: City not found` / `Geocoding failed` → мягкое сообщение пользователю с предложением указать ближайший крупный город
 
 ### Кнопки и клавиатура (retention-петля)
 - Постоянная Reply-клавиатура `ASTROLOGY_REPLY_KEYBOARD`:
@@ -82,6 +84,7 @@ Observability (observability.py) # op_format, mask_api_key
   [👤 Профиль]         [🔄 Начать заново]
   ```
 - Inline-подменю прогноза: «📅 Сегодня», «📆 Неделя», «🗓️ Месяц», «🔭 Год» (callback_data: `mdl:fc_today` и т.д.)
+- **Inline-кнопки сфер** после каждого LLM-ответа (`_with_sphere_followup`): 6 тем в 2 ряда — Личность, Отношения, Партнёр, Карьера, Финансы, Здоровье
 - Callback routing в `domain/handler.py`: `expand_inbound_quick_action()` → LLM-промпт
 - `answerCallbackQuery` вызывается после каждого колбэка (polling + webhook)
 - Outbound: `OutboundMessage.buttons` → `inline_keyboard` (поддержка `callback_data` и `url`)
@@ -93,7 +96,10 @@ Observability (observability.py) # op_format, mask_api_key
 | `mdl:natal` | Интерпретация натальной карты |
 | `mdl:fc_today/week/month/year` | Прогноз на период |
 | `mdl:syn` | Совместимость (инструкция) |
-| `mdl:th_fin/rel/health` | Тематические разборы |
+| `mdl:th_fin/rel/health` | Тематические разборы (финансы, отношения, здоровье) |
+| `mdl:th_personality` | Личность и характер |
+| `mdl:th_career` | Карьера и предназначение |
+| `mdl:th_partner` | Партнёрство и брак |
 | `mdl:switch_western/vedic` | Переключение системы + пересчёт |
 | `mdl:forecast_menu` | Inline-подменю периодов |
 | `mdl:profile` | Показ профиля пользователя |
@@ -118,6 +124,7 @@ Observability (observability.py) # op_format, mask_api_key
 - Ресурсы: `text_reply`, `image_generation`
 - Период: `billing_period.py` (calendar month UTC)
 - Промокоды: `/promo CODE` → `activated_promo` в `agent_card`, сброс лимитов в `scenario_state`
+- **P0 fix**: `consume` теперь проверяет `is_promo_active` и сразу возвращает `allowed=True` при активном промо (раньше логировался WARNING `limit_exceeded` после promo-пользователей)
 
 ### Telegram Stars (биллинг)
 - `pre_checkout_query` → `answerPreCheckoutQuery`
@@ -153,5 +160,14 @@ Observability (observability.py) # op_format, mask_api_key
 - `TODO: несколько токенов → несколько vertical_id` — резолвинг в webhook
 - `TODO: Authorization: Bearer → vertical_id` — для Web API
 - Паритет Web-канала: фронт должен поддержать `buttons` из JSON-ответа
-- Качество промптов вертикали `astrology`: текущий системный промпт — базовый
 - RAG в проде: Qdrant не запущен на VM (требует отдельного сервиса)
+- Синастрия: разбор совместимости двух карт (1.4 в план)
+
+## Что сделано в gnhf-night-2 (2026-07)
+
+- **P0.1**: fix `QuotaService.consume` — при активном промо не логирует ложный WARNING `limit_exceeded`
+- **P0.2**: fix `City not found` — graceful сообщение пользователю с предложением указать ближайший крупный город
+- **P0.3**: текущие транзиты планет (`calculate_current_transits`) инжектируются в каждый LLM-запрос; промпт запрещает апологии «нет данных о транзитах»
+- **P1**: системный промпт astrology обновлён — обязательный блок «Итог:» (2–4 предложения) после каждого содержательного ответа
+- **P2**: inline-кнопки сфер жизни после LLM-ответов: Личность, Отношения, Партнёр, Карьера, Финансы, Здоровье
+- **P3**: кнопки периодов прогноза (Сегодня/Неделя/Месяц/Год) — уже работали, подтверждено тестами

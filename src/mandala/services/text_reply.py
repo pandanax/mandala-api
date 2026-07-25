@@ -20,11 +20,16 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy.engine import Connection
 
-from mandala.astro.natal_chart import natal_chart_to_system_text
+from mandala.astro.natal_chart import (
+    calculate_current_transits,
+    current_transits_to_system_text,
+    natal_chart_to_system_text,
+)
 from mandala.domain.contracts import InboundEvent, OutboundMessage
 from mandala.llm import ChatMessage, TextCompletionClient
 from mandala.llm.exceptions import LlmProviderError
@@ -195,6 +200,15 @@ def handle_inbound_text_llm(
                 f"{system_prompt}\n\nСохранённая натальная карта клиента "
                 f"(опирайся на неё; не копируй целиком без запроса):\n{snippet}"
             )
+        # Текущие транзиты — актуальные позиции планет для прогнозов
+        try:
+            now_utc = datetime.now(tz=UTC)
+            transits = calculate_current_transits(
+                now_utc.year, now_utc.month, now_utc.day, now_utc.hour
+            )
+            system_prompt = f"{system_prompt}\n\n{current_transits_to_system_text(transits)}"
+        except Exception:
+            logger.warning("failed to compute current transits for system prompt", exc_info=True)
     if search_port is not None:
         rag_cfg = RagEnvSettings.from_env()
         try:

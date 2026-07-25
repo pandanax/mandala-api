@@ -165,7 +165,25 @@ class QuotaService:
 
         При ``limit_per_period == 0`` (например ``image_generation`` на ``free``) инкремента нет,
         возвращается отказ — вызывать внешние image API не следует.
+
+        При активном промо-коде инкремент счётчика пропускается — безлимит.
         """
+        from mandala.services.promo import is_promo_active
+
+        if is_promo_active(user_id=user_id, vertical_id=vertical_id, conn=self._conn):
+            logger.debug(
+                "funnel quota %s",
+                op_format(
+                    vertical_id=vertical_id,
+                    user_id=user_id,
+                    stage="consume",
+                    resource=resource,
+                    outcome="allow",
+                    reason="promo_active",
+                ),
+            )
+            return QuotaConsumeResult(allowed=True, reason=None)
+
         users = UsersRepository(self._conn)
         plan_id = users.fetch_current_plan_id(user_id=user_id, vertical_id=vertical_id)
         if plan_id is None:

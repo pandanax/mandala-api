@@ -26,6 +26,7 @@ from mandala.verticals.quick_actions import (
     is_reset_button,
     is_show_profile,
     is_system_switch,
+    sphere_followup_buttons,
 )
 
 logger = logging.getLogger(__name__)
@@ -173,7 +174,26 @@ def handle_inbound(
         dialog_summary=dialog_summary,
         agent_card=profile.agent_card,
     )
+    text_result = _with_sphere_followup(text_result, event.vertical_id)
     return _with_astrology_keyboard(text_result, event.vertical_id)
+
+
+def _with_sphere_followup(
+    result: list[OutboundMessage],
+    vertical_id: str,
+) -> list[OutboundMessage]:
+    """Добавить inline-кнопки сфер к последнему сообщению LLM-ответа astrology.
+
+    Показывается только если последний ответ содержит текст и не имеет кнопок —
+    приглашает пользователя выбрать тему для углублённого разбора.
+    """
+    if vertical_id.strip() != "astrology" or not result:
+        return result
+    last = result[-1]
+    # Добавляем только если нет уже заданных inline-кнопок и есть текст
+    if last.buttons is None and last.text:
+        result[-1] = last.model_copy(update={"buttons": sphere_followup_buttons()})
+    return result
 
 
 def _with_astrology_keyboard(

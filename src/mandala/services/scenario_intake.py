@@ -145,13 +145,16 @@ def handle_intake_before_llm(
     if next_idx >= len(steps):
         fresh = profiles.get_by_user_id(user_id)
         ac = dict(fresh.agent_card) if fresh else {}
+        geo_error: str | None = None
         if event.vertical_id.strip() == "astrology":
-            _try_calculate_and_save_natal_chart(
+            geo_error = _try_calculate_and_save_natal_chart(
                 conn=conn, user_id=user_id, agent_card=ac, profiles=profiles
             )
             fresh2 = profiles.get_by_user_id(user_id)
             ac = dict(fresh2.agent_card) if fresh2 else ac
         msgs = [post_intake_completion_message(event.vertical_id, ac)]
+        if geo_error:
+            msgs.append(OutboundMessage(text=geo_error))
         kb = _get_reply_keyboard(event.vertical_id)
         if kb:
             msgs.append(
@@ -197,13 +200,17 @@ def _try_calculate_and_save_natal_chart(
     user_id: UUID,
     agent_card: dict[str, Any],
     profiles: ProfileRepository,
-) -> None:
-    """Рассчитать натальную карту математически и сохранить в agent_card при завершении анкеты."""
+) -> str | None:
+    """Рассчитать натальную карту математически и сохранить в agent_card при завершении анкеты.
+
+    Возвращает None при успехе или при некритичных ошибках.
+    Возвращает строку-сообщение для пользователя, если геокодинг города не удался.
+    """
     birth_date = str(agent_card.get("birth_date") or "").strip()
     birth_time = str(agent_card.get("birth_time") or "unknown").strip()
     birth_place = str(agent_card.get("birth_place") or "").strip()
     if not birth_date or not birth_place:
-        return
+        return None
     system = str(agent_card.get(AGENT_CARD_ASTRO_SYSTEM) or "western")
     try:
         from mandala.astro.natal_chart import calculate_natal_chart
@@ -216,8 +223,26 @@ def _try_calculate_and_save_natal_chart(
         )
         profiles.merge_agent_card(user_id, {AGENT_CARD_NATAL_CHART_DATA: chart_data})
         logger.info("natal chart calculated system=%s user_id=%s", system, user_id)
+        return None
+    except ValueError as exc:
+        err_msg = str(exc)
+        if "City not found" in err_msg or "Geocoding failed" in err_msg:
+            logger.warning(
+                "natal chart geocoding failed place=%r user_id=%s: %s",
+                birth_place,
+                user_id,
+                err_msg,
+            )
+            return (
+                f"⚠️ Не удалось найти город «{birth_place}» для расчёта натальной карты. "
+                "Попробуйте указать ближайший крупный город или уточните название "
+                "(напишите /reset и заполните анкету заново)."
+            )
+        logger.warning("natal chart calculation failed user_id=%s", user_id, exc_info=True)
+        return None
     except Exception:
         logger.warning("natal chart calculation failed user_id=%s", user_id, exc_info=True)
+        return None
 
 
 def _first_step_intro(vertical_id: str) -> str:

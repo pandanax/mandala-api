@@ -233,6 +233,80 @@ def calculate_natal_chart(
     }
 
 
+def calculate_current_transits(
+    year: int,
+    month: int,
+    day: int,
+    hour: int = 12,
+) -> dict[str, Any]:
+    """Рассчитать текущие позиции планет (транзиты) для заданной даты.
+
+    Используется фиксированная геоточка (Гринвич): знаки зодиака не зависят от
+    местонахождения наблюдателя, дома — зависят, но для прогнозного контекста
+    достаточно только знаков и градусов.
+    """
+    from kerykeion import AstrologicalSubject
+
+    subject = AstrologicalSubject(
+        "transits",
+        year=year,
+        month=month,
+        day=day,
+        hour=hour,
+        minute=0,
+        lng=0.0,
+        lat=51.48,  # Гринвич, для зодиакальных позиций местоположение не важно
+        tz_str="UTC",
+        online=False,
+    )
+
+    planet_attrs = [
+        "sun",
+        "moon",
+        "mercury",
+        "venus",
+        "mars",
+        "jupiter",
+        "saturn",
+        "uranus",
+        "neptune",
+        "pluto",
+    ]
+    planets: dict[str, dict[str, Any]] = {}
+    for attr in planet_attrs:
+        obj = getattr(subject, attr, None)
+        if obj is None:
+            continue
+        name_en = getattr(obj, "name", attr.capitalize())
+        sign_abbr = getattr(obj, "sign", "")
+        planets[_planet_ru(name_en)] = {
+            "sign": _sign_ru(sign_abbr),
+            "degree": round(float(getattr(obj, "position", 0)), 2),
+            "retrograde": bool(getattr(obj, "retrograde", False)),
+        }
+
+    return {
+        "date": f"{day:02d}.{month:02d}.{year}",
+        "planets": planets,
+    }
+
+
+def current_transits_to_system_text(transits: dict[str, Any]) -> str:
+    """Сформировать текстовый блок текущих транзитов для инжекции в system-промпт."""
+    date = transits.get("date", "")
+    lines = [f"=== ТЕКУЩИЕ ТРАНЗИТЫ (позиции планет на {date}) ==="]
+    for planet, data in transits.get("planets", {}).items():
+        retro = " (Rx)" if data.get("retrograde") else ""
+        deg = data.get("degree", 0)
+        lines.append(f"  {planet}: {data.get('sign', '?')}{retro}, {deg}°")
+    lines.append("=== КОНЕЦ ТРАНЗИТОВ ===")
+    lines.append(
+        "Используй эти актуальные позиции для прогнозов и транзитных аспектов к натальной карте. "
+        "Не говори, что у тебя нет данных о текущих планетах — они выше."
+    )
+    return "\n".join(lines)
+
+
 def natal_chart_to_system_text(chart: dict[str, Any]) -> str:
     """Сформировать текстовый блок для инжекции в system-промпт LLM."""
     lines: list[str] = [
