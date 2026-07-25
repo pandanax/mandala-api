@@ -46,6 +46,7 @@ from mandala.services.llm_time_context import build_llm_time_context_block
 from mandala.services.quota import RESOURCE_TEXT_REPLY, QuotaService
 from mandala.verticals import get_vertical_system_prompt
 from mandala.verticals.client_knowledge import (
+    AGENT_CARD_ASTRO_SYSTEM,
     AGENT_CARD_NATAL_CHART_DATA,
     AGENT_CARD_NATAL_CHART_TEXT,
     split_llm_agent_card_suffix,
@@ -184,6 +185,27 @@ def handle_inbound_text_llm(
             )
         # Приоритет 1: математически рассчитанные данные (точность Swiss Ephemeris)
         natal_data = card.get(AGENT_CARD_NATAL_CHART_DATA)
+        # Активная школа: приоритет — система, в которой посчитана натальная карта
+        # (иначе прогноз-транзиты подмешают тропическую сетку к сидерической карте
+        # и получится «смешение школ», как в фидбеке Евгении). Затем — выбор из
+        # анкеты (astro_system), затем дефолт western.
+        astro_system = "western"
+        if isinstance(natal_data, dict) and isinstance(natal_data.get("chart_system_key"), str):
+            astro_system = natal_data["chart_system_key"] or "western"
+        elif isinstance(card.get(AGENT_CARD_ASTRO_SYSTEM), str):
+            astro_system = str(card[AGENT_CARD_ASTRO_SYSTEM]) or "western"
+        system_label = (
+            "ведическая (сидерическая, Lahiri)"
+            if astro_system == "vedic"
+            else "западная (тропическая)"
+        )
+        system_prompt = (
+            f"{system_prompt}\n\nАКТИВНАЯ АСТРОЛОГИЧЕСКАЯ ШКОЛА: {system_label}. "
+            "Интерпретируй строго в этой системе. Не смешивай западную (тропическую) и "
+            "ведическую (сидерическую) традиции, не приводи позиции другой школы «для "
+            "сравнения» и не выдумывай знаки/градусы — используй только рассчитанные "
+            "значения из блоков натальной карты и транзитов ниже."
+        )
         if isinstance(natal_data, dict) and natal_data:
             try:
                 natal_block = natal_chart_to_system_text(natal_data)
@@ -204,7 +226,11 @@ def handle_inbound_text_llm(
         try:
             now_utc = datetime.now(tz=UTC)
             transits = calculate_current_transits(
-                now_utc.year, now_utc.month, now_utc.day, now_utc.hour
+                now_utc.year,
+                now_utc.month,
+                now_utc.day,
+                now_utc.hour,
+                system=astro_system,
             )
             system_prompt = f"{system_prompt}\n\n{current_transits_to_system_text(transits)}"
         except Exception:

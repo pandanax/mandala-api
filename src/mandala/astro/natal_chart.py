@@ -143,8 +143,14 @@ def calculate_natal_chart(
     lat, lng, tz_str = _geocode_city(birth_place)
 
     # --- параметры системы ---
+    # Zodiac: западная — тропический, ведическая — сидерический с айянамшей Lahiri.
     zodiac_type = "Sidereal" if system == "vedic" else "Tropic"
     sidereal_mode = "LAHIRI" if system == "vedic" else None
+    # Дома: западная традиция — Placidus (дефолт kerykeion, совпадает с референсным
+    # тропическим софтом), ведическая — целознаковая система (whole-sign, 'W'):
+    # каждый знак = один дом, отсчёт от Лагны. Именно так строят Rashi/Bhava в
+    # стандартных ведических картах (см. регресс-тест по карте Евгении).
+    houses_system = "W" if system == "vedic" else None
 
     # --- расчёт ---
     kwargs: dict[str, Any] = {
@@ -161,6 +167,8 @@ def calculate_natal_chart(
     }
     if sidereal_mode:
         kwargs["sidereal_mode"] = sidereal_mode
+    if houses_system:
+        kwargs["houses_system_identifier"] = houses_system
 
     subject = AstrologicalSubject("person", **kwargs)
 
@@ -238,27 +246,44 @@ def calculate_current_transits(
     month: int,
     day: int,
     hour: int = 12,
+    *,
+    system: str = "western",
 ) -> dict[str, Any]:
     """Рассчитать текущие позиции планет (транзиты) для заданной даты.
+
+    Транзиты ОБЯЗАНЫ считаться в той же системе (``system``), что и натальная
+    карта — иначе прогноз подмешивает тропическую сетку к сидерической карте
+    (и наоборот) и получается «смешение школ». Для сидерической используется та
+    же айянамша Lahiri, что и в :func:`calculate_natal_chart`.
 
     Используется фиксированная геоточка (Гринвич): знаки зодиака не зависят от
     местонахождения наблюдателя, дома — зависят, но для прогнозного контекста
     достаточно только знаков и градусов.
+
+    Args:
+        system: 'western' (тропическая) или 'vedic' (сидерическая Lahiri).
     """
     from kerykeion import AstrologicalSubject
 
-    subject = AstrologicalSubject(
-        "transits",
-        year=year,
-        month=month,
-        day=day,
-        hour=hour,
-        minute=0,
-        lng=0.0,
-        lat=51.48,  # Гринвич, для зодиакальных позиций местоположение не важно
-        tz_str="UTC",
-        online=False,
-    )
+    zodiac_type = "Sidereal" if system == "vedic" else "Tropic"
+    sidereal_mode = "LAHIRI" if system == "vedic" else None
+
+    kwargs: dict[str, Any] = {
+        "year": year,
+        "month": month,
+        "day": day,
+        "hour": hour,
+        "minute": 0,
+        "lng": 0.0,
+        "lat": 51.48,  # Гринвич, для зодиакальных позиций местоположение не важно
+        "tz_str": "UTC",
+        "zodiac_type": zodiac_type,
+        "online": False,
+    }
+    if sidereal_mode:
+        kwargs["sidereal_mode"] = sidereal_mode
+
+    subject = AstrologicalSubject("transits", **kwargs)
 
     planet_attrs = [
         "sun",
@@ -288,19 +313,28 @@ def calculate_current_transits(
     return {
         "date": f"{day:02d}.{month:02d}.{year}",
         "planets": planets,
+        "system": system,
+        "chart_system": "ведическая (Lahiri)" if system == "vedic" else "западная (тропическая)",
     }
 
 
 def current_transits_to_system_text(transits: dict[str, Any]) -> str:
     """Сформировать текстовый блок текущих транзитов для инжекции в system-промпт."""
     date = transits.get("date", "")
-    lines = [f"=== ТЕКУЩИЕ ТРАНЗИТЫ (позиции планет на {date}) ==="]
+    system_label = transits.get("chart_system", "")
+    header = f"=== ТЕКУЩИЕ ТРАНЗИТЫ (позиции планет на {date}"
+    if system_label:
+        header += f"; система: {system_label}"
+    header += ") ==="
+    lines = [header]
     for planet, data in transits.get("planets", {}).items():
         retro = " (Rx)" if data.get("retrograde") else ""
         deg = data.get("degree", 0)
         lines.append(f"  {planet}: {data.get('sign', '?')}{retro}, {deg}°")
     lines.append("=== КОНЕЦ ТРАНЗИТОВ ===")
     lines.append(
+        "Транзиты рассчитаны в ТОЙ ЖЕ системе, что и натальная карта — "
+        "используй их строго в этой школе, не смешивай тропические и сидерические позиции. "
         "Используй эти актуальные позиции для прогнозов и транзитных аспектов к натальной карте. "
         "Не говори, что у тебя нет данных о текущих планетах — они выше."
     )
@@ -337,8 +371,13 @@ def natal_chart_to_system_text(chart: dict[str, Any]) -> str:
             )
 
     lines.append("=== КОНЕЦ НАТАЛЬНОЙ КАРТЫ ===")
+    system_label = chart.get("chart_system", "")
+    if system_label:
+        lines.append(f"Интерпретируй СТРОГО в рамках выбранной системы ({system_label}).")
     lines.append(
+        "Не смешивай школы: не переводи эти позиции в другую систему и не приводи "
+        "«для сравнения» знаки/градусы другой школы (тропической vs сидерической). "
         "Используй ТОЛЬКО эти рассчитанные данные для астрологической интерпретации. "
-        "Не пересчитывай и не предполагай позиции планет самостоятельно."
+        "Не пересчитывай, не сдвигай и не предполагай позиции планет самостоятельно."
     )
     return "\n".join(lines)
