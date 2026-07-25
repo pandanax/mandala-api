@@ -11,6 +11,8 @@ from mandala.adapters.telegram.callback_ack import answer_callback_query_if_pres
 from mandala.adapters.telegram.inbound_map import telegram_update_to_inbound_event
 from mandala.adapters.telegram.outbound_send import deliver_outbound_messages
 from mandala.adapters.telegram.typing_keepalive import run_with_typing_keepalive
+from mandala.adapters.telegram.voice_transcribe import resolve_voice_to_text
+from mandala.domain import OutboundMessage
 from mandala.domain.handler import handle_inbound
 from mandala.http.engine_access import get_engine
 from mandala.observability import op_format
@@ -34,6 +36,21 @@ def process_telegram_webhook_update(
         chat_id_early = raw_ref.get("chat_id")
         bot_token = get_bot_token_for_vertical(vertical_id)
         engine = get_engine()
+
+        # Голос/аудио → текст (STT) до общего пайплайна; сбой = мягкое сообщение, не падаем.
+        if bot_token and chat_id_early is not None:
+            with TelegramBotApiClient(bot_token) as stt_api:
+                resolution = resolve_voice_to_text(event, stt_api)
+                if resolution.soft_message is not None:
+                    deliver_outbound_messages(
+                        stt_api,
+                        chat_id=int(chat_id_early),
+                        messages=[OutboundMessage(text=resolution.soft_message)],
+                        vertical_id=vertical_id,
+                    )
+                    return
+            event = resolution.event
+
         with engine.begin() as conn:
             if bot_token and chat_id_early is not None:
                 with TelegramBotApiClient(bot_token) as typing_api:

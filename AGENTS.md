@@ -86,6 +86,25 @@ To change a vertical's model without editing JSON, set `LLM_MODEL_<VERTICAL>`. E
 source for every vertical is logged at startup (`http/app.py` lifespan →
 `llm.factory.log_effective_models`). Details: [docs/agent.md](docs/agent.md) “Выбор модели вертикали”.
 
+## Voice messages: STT (speech → text) before the normal pipeline
+
+Telegram `voice`/`audio` messages are transcribed to text, then flow through the **existing**
+text pipeline (`handle_inbound` → `text_reply`) unchanged — the reply logic never sees audio.
+
+- `inbound_map.py` recognizes `voice`/`audio` → `InboundAttachment(kind=..., file_id=..,
+  mime_type in extra)`; the mapper stays pure (no I/O).
+- Download + STT orchestration: `adapters/telegram/voice_transcribe.py` (`resolve_voice_to_text`)
+  — called in `polling.py` and `webhook_delivery.py` **after** mapping, **before**
+  `handle_inbound`. On success it returns an event with `text` filled and
+  `voice_transcribed=True` (`domain/contracts.py`); on ANY failure it returns a friendly
+  `soft_message` (never raises) — the caller delivers that and skips the turn.
+- Audio bytes: `bot_api.py` `get_file` (getFile) + `download_file` (GET
+  `/file/bot<token>/<file_path>`, retries like `call`).
+- STT provider is OpenAI-compatible `/audio/transcriptions` (Whisper-shaped):
+  `services/transcription.py`. Env `STT_*` with fallback to `LLM_*` for URL+key; **Russian is
+  the default** (`STT_LANGUAGE=ru`, empty = auto). Not configured (no URL+key) → voice degrades
+  softly. Env documented in `.env.example`.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

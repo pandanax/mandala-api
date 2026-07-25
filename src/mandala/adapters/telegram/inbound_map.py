@@ -17,12 +17,35 @@ def _pick_largest_photo_file_id(photo: list[dict[str, Any]]) -> str | None:
     return str(fid) if fid is not None else None
 
 
+def _voice_attachment(msg: dict[str, Any]) -> InboundAttachment | None:
+    """Голосовое (``voice``) или аудио (``audio``) → вложение для STT (тикет: голос→текст).
+
+    ``mime_type`` кладём в extra-поле (``InboundAttachment`` допускает extra), чтобы адаптер
+    подобрал корректное имя/тип файла при скачивании. ``voice`` в Telegram — ogg/opus,
+    ``audio`` — произвольный аудиофайл (mp3, m4a и т.п.).
+    """
+    for kind in ("voice", "audio"):
+        node = msg.get(kind)
+        if isinstance(node, dict):
+            fid = node.get("file_id")
+            if fid is not None:
+                mime = node.get("mime_type")
+                extra: dict[str, Any] = {}
+                if isinstance(mime, str) and mime:
+                    extra["mime_type"] = mime
+                return InboundAttachment(kind=kind, file_id=str(fid), **extra)
+    return None
+
+
 def _attachments_from_message(msg: dict[str, Any]) -> list[InboundAttachment]:
     out: list[InboundAttachment] = []
     if "photo" in msg and isinstance(msg["photo"], list):
         fid = _pick_largest_photo_file_id(msg["photo"])
         if fid:
             out.append(InboundAttachment(kind="photo", file_id=fid))
+    voice = _voice_attachment(msg)
+    if voice is not None:
+        out.append(voice)
     doc = msg.get("document")
     if isinstance(doc, dict):
         fid = doc.get("file_id")

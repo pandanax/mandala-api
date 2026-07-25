@@ -28,6 +28,7 @@ def test_inbound_event_minimal_roundtrip() -> None:
         "attachments": [],
         "callback_data": None,
         "locale": None,
+        "voice_transcribed": False,
         "raw_ref": None,
     }
     assert InboundEvent.model_validate_json(json.dumps(dumped)) == event

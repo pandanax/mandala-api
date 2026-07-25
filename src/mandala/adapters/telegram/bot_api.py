@@ -129,6 +129,60 @@ class TelegramBotApiClient:
             raise TelegramApiError(msg)
         return raw
 
+    def get_file(self, file_id: str) -> dict[str, Any]:
+        """``getFile`` — метаданные файла (в т.ч. ``file_path`` для скачивания)."""
+        raw = self.call("getFile", {"file_id": file_id})
+        if not isinstance(raw, dict):
+            msg = "telegram getFile: ответ не объект"
+            raise TelegramApiError(msg)
+        return raw
+
+    def download_file(self, file_path: str) -> bytes:
+        """Скачать содержимое файла по ``file_path`` из :meth:`get_file`.
+
+        URL скачивания — ``{base}/file/bot<token>/<file_path>`` (см. Bot API). Ретраи на
+        сетевые ошибки и 5xx, как в :meth:`call`; в логах — только ``mask_bot_token``.
+        """
+        clean = file_path.lstrip("/")
+        url = f"{self._base}/file/bot{self._token}/{clean}"
+        masked = mask_bot_token(self._token)
+        last_err: Exception | None = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                r = self._client.get(url)
+            except httpx.RequestError as e:
+                last_err = e
+                wait = min(2.0**attempt, 30.0)
+                logger.warning(
+                    "telegram download error attempt=%s token=%s wait=%.1fs err=%s",
+                    attempt + 1,
+                    masked,
+                    wait,
+                    e,
+                )
+                time.sleep(wait)
+                continue
+            if r.status_code >= 500:
+                wait = min(2.0**attempt, 30.0)
+                logger.warning(
+                    "telegram download 5xx status=%s attempt=%s token=%s wait=%.1fs",
+                    r.status_code,
+                    attempt + 1,
+                    masked,
+                    wait,
+                )
+                time.sleep(wait)
+                continue
+            if r.status_code >= 400:
+                msg = f"telegram download HTTP {r.status_code}"
+                raise TelegramApiError(msg)
+            return r.content
+
+        if last_err is not None:
+            raise last_err
+        msg = "telegram download: исчерпаны ретраи"
+        raise TelegramApiError(msg)
+
     def get_updates(self, *, offset: int | None = None, timeout: int = 30) -> list[dict[str, Any]]:
         params: dict[str, Any] = {"timeout": timeout}
         if offset is not None:

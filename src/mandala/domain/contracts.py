@@ -68,6 +68,13 @@ class InboundEvent(BaseModel):
         default=None,
         description="Локаль пользователя/клиента, если доступна.",
     )
+    voice_transcribed: bool = Field(
+        default=False,
+        description=(
+            "``True``, если ``text`` получен транскрипцией голосового/аудио-сообщения (STT), "
+            "а не введён текстом. Пометка для логов/аналитики; на пайплайн ответа не влияет."
+        ),
+    )
     raw_ref: dict[str, Any] | None = Field(
         default=None,
         description="Опциональная ссылка на сырой объект канала для ответа (например ``chat_id``).",
