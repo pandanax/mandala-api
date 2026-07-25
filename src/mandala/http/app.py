@@ -21,6 +21,7 @@ from mandala.adapters.telegram.inbound_map import telegram_update_to_inbound_eve
 from mandala.adapters.telegram.webhook_delivery import process_telegram_webhook_update
 from mandala.http.engine_access import get_engine
 from mandala.http.web_chat import router as web_chat_router
+from mandala.llm.factory import log_effective_models
 from mandala.observability import op_format
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     На старте регистрируем команды бота через ``setMyCommands``, чтобы после
     каждого деплоя они автоматически подсвечивались в чате. Ошибку глотаем внутри
     :func:`register_bot_commands_if_configured` — старт не должен падать.
+
+    Также логируем effective-модель каждой вертикали, чтобы рассинхрон
+    ``LLM_MODEL`` (env) ↔ bundled ``vertical_overrides.json`` был виден сразу после деплоя.
     """
+    log_effective_models(logger)
     await register_bot_commands_if_configured()
     yield
 

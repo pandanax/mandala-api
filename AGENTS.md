@@ -74,6 +74,18 @@ Two run paths share one image (`Containerfile`); the app binds `${PORT}`
   Verified: OLD hardcoded-8080 probe → `unhealthy` on VM; `${PORT}` probe → `healthy`
   on both paths.
 
+## LLM: single source of truth for per-vertical model
+
+Model for a `vertical_id` is resolved in one place — `LlmConfigProvider.resolve`
+(`src/mandala/llm/config.py`) — by strict precedence, highest→lowest: **1)** `LLM_MODEL_<VERTICAL>`
+env override (e.g. `LLM_MODEL_ASTROLOGY`) → **2)** `vertical_overrides.json` (bundled in the
+package, or the file from `LLM_VERTICAL_OVERRIDES_PATH`) → **3)** global `LLM_MODEL`. Bundled JSON
+pins `astrology`/`therapy` = `deepseek-v4-flash`; global `LLM_MODEL` deliberately does **not**
+override the JSON (it is always set, so it would silently move those verticals off their default).
+To change a vertical's model without editing JSON, set `LLM_MODEL_<VERTICAL>`. Effective model +
+source for every vertical is logged at startup (`http/app.py` lifespan →
+`llm.factory.log_effective_models`). Details: [docs/agent.md](docs/agent.md) “Выбор модели вертикали”.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

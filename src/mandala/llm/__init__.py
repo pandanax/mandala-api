@@ -7,13 +7,16 @@ from mandala.llm.config import (
     ResolvedLlmConfig,
     VerticalLlmOverride,
     bundled_overrides_path,
+    load_env_model_overrides,
     load_vertical_overrides,
 )
 from mandala.llm.exceptions import LlmProviderError
 from mandala.llm.factory import (
+    build_config_provider,
     create_image_client_for_vertical,
     create_stub_image_client_for_vertical,
     create_text_client_for_vertical,
+    log_effective_models,
 )
 from mandala.llm.image_generation import (
     ImageGenerationClient,
@@ -29,9 +32,11 @@ __all__ = [
     "ImageGenerationClient",
     "ImageGenerationResult",
     "StubImageGenerationClient",
+    "build_config_provider",
     "create_image_client_for_vertical",
     "create_stub_image_client_for_vertical",
     "create_text_client_for_vertical",
+    "log_effective_models",
     "LlmConfigProvider",
     "LlmEnvSettings",
     "LlmProviderError",
@@ -40,5 +45,6 @@ __all__ = [
     "TextCompletionClient",
     "VerticalLlmOverride",
     "bundled_overrides_path",
+    "load_env_model_overrides",
     "load_vertical_overrides",
 ]

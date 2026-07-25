@@ -14,6 +14,10 @@ _ENV_BASE_URL = "LLM_BASE_URL"
 _ENV_API_KEY = "LLM_API_KEY"
 _ENV_MODEL = "LLM_MODEL"
 _ENV_OVERRIDES_PATH = "LLM_VERTICAL_OVERRIDES_PATH"
+# Приставка для явного per-vertical переопределения модели из окружения:
+# ``LLM_MODEL_<VERTICAL>`` (например ``LLM_MODEL_ASTROLOGY``). Имеет высший приоритет —
+# перебивает и bundled JSON, и файл из ``LLM_VERTICAL_OVERRIDES_PATH``. См. README и docs/agent.md.
+_ENV_MODEL_PREFIX = "LLM_MODEL_"
 
 
 class LlmEnvSettings(BaseModel):
@@ -121,25 +125,87 @@ def _coerce_override_dict(val: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in val.items() if k in ("model", "base_url", "api_key")}
 
 
+def load_env_model_overrides(
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Явные per-vertical модели из окружения: ``LLM_MODEL_<VERTICAL>`` → ``{vertical: model}``.
+
+    Ключ приводится к нижнему регистру (``LLM_MODEL_ASTROLOGY`` → ``astrology``), значение —
+    без пробелов. Пустые значения и «голый» :data:`_ENV_MODEL` (без суффикса) игнорируются.
+    Это верхний слой приоритета в :meth:`LlmConfigProvider.resolve` — чтобы правка модели в
+    ``/opt/mandala/env`` действительно срабатывала, не требуя правки bundled JSON.
+    """
+    env = dict(environ if environ is not None else os.environ)
+    out: dict[str, str] = {}
+    for key, raw in env.items():
+        if not key.startswith(_ENV_MODEL_PREFIX):
+            continue
+        suffix = key[len(_ENV_MODEL_PREFIX) :].strip()
+        val = (raw or "").strip()
+        if not suffix or not val:
+            continue
+        out[suffix.lower()] = val
+    return out
+
+
+# Источник effective-модели (для стартового лога и диагностики рассинхрона env↔json).
+MODEL_SOURCE_ENV_VERTICAL = "env_vertical"  # LLM_MODEL_<VERTICAL>
+MODEL_SOURCE_OVERRIDES = "vertical_overrides"  # bundled JSON или LLM_VERTICAL_OVERRIDES_PATH
+MODEL_SOURCE_ENV_DEFAULT = "env_default"  # LLM_MODEL (глобальный дефолт)
+
+
 class LlmConfigProvider:
     """Слияние env и переопределений по ``vertical_id`` (slug из seed / webhook)."""
 
-    __slots__ = ("_env", "_overrides")
+    __slots__ = ("_env", "_env_models", "_overrides")
 
     def __init__(
         self,
         env: LlmEnvSettings,
         overrides: Mapping[str, VerticalLlmOverride] | None = None,
+        env_model_overrides: Mapping[str, str] | None = None,
     ) -> None:
         self._env = env
         self._overrides = dict(overrides or {})
+        # Ключи нормализуем к нижнему регистру, чтобы resolve() матчился по slug вертикали.
+        self._env_models = {
+            k.strip().lower(): v.strip()
+            for k, v in dict(env_model_overrides or {}).items()
+            if k.strip() and v.strip()
+        }
+
+    @property
+    def default_model(self) -> str:
+        """Глобальный дефолт модели (``LLM_MODEL``) — fallback для вертикалей без override."""
+        return self._env.default_model
+
+    def _resolve_model(self, vid: str) -> tuple[str, str]:
+        """Модель вертикали и её источник.
+
+        Приоритет: env-per-vertical → override-файл → env-дефолт.
+        """
+        env_model = self._env_models.get(vid.lower())
+        if env_model:
+            return env_model, MODEL_SOURCE_ENV_VERTICAL
+        o = self._overrides.get(vid)
+        if o and o.model:
+            return o.model, MODEL_SOURCE_OVERRIDES
+        return self._env.default_model, MODEL_SOURCE_ENV_DEFAULT
+
+    def model_source(self, vertical_id: str) -> str:
+        """Откуда пришла effective-модель вертикали (см. ``MODEL_SOURCE_*``)."""
+        return self._resolve_model(vertical_id.strip())[1]
+
+    def known_vertical_ids(self) -> list[str]:
+        """Вертикали с явной моделью (bundled/файл-override или ``LLM_MODEL_<VERTICAL>``)."""
+        return sorted(set(self._overrides) | set(self._env_models))
 
     def resolve(self, vertical_id: str) -> ResolvedLlmConfig:
         vid = vertical_id.strip()
         o = self._overrides.get(vid)
         base_url = o.base_url if o and o.base_url else self._env.base_url
         api_key = o.api_key if o and o.api_key else self._env.api_key
-        model = o.model if o and o.model else self._env.default_model
+        model, _ = self._resolve_model(vid)
         return ResolvedLlmConfig(
             base_url=base_url.strip(),
             api_key=api_key.strip(),

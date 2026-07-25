@@ -36,6 +36,29 @@
 
 Реализация: интерфейсы **`TextCompletionClient`**, **`ImageGenerationClient`** с конкретными бэкендами; дефолтные модели могут переопределяться конфигом **`vertical_id`**. В коде: пакет **`mandala.llm`** (`OpenAICompatibleTextClient`, **`OpenAICompatibleImageClient`**, **`StubImageGenerationClient`**, **`LlmConfigProvider`**, **`LlmProviderError`**). Исторический разрез по тикетам — [implementation-plan.md](implementation-plan.md).
 
+### Выбор модели вертикали: единый источник правды
+
+Модель для конкретной вертикали резолвит **`LlmConfigProvider.resolve(vertical_id)`**
+(`src/mandala/llm/config.py`) по строгому приоритету — **высший → низший**:
+
+1. **`LLM_MODEL_<VERTICAL>`** — явный env-override per-vertical (например `LLM_MODEL_ASTROLOGY`).
+   Перебивает bundled JSON. Это документированный путь «поменял модель в env — сработало».
+2. **`vertical_overrides.json`** — файл переопределений: bundled в пакете
+   (`src/mandala/llm/vertical_overrides.json`) либо внешний из `LLM_VERTICAL_OVERRIDES_PATH`
+   (если переменная задана — файл обязан существовать). Bundled фиксирует
+   `astrology`/`therapy` = `deepseek-v4-flash`.
+3. **`LLM_MODEL`** — глобальный дефолт, fallback для вертикалей без override выше.
+
+**Почему `LLM_MODEL` не перебивает JSON.** `LLM_MODEL` обязателен и задан всегда; если бы он
+имел приоритет над bundled JSON, любой деплой с `LLM_MODEL ≠ deepseek-v4-flash` молча уводил бы
+`astrology`/`therapy` с их дефолта. Поэтому per-vertical правка идёт через явный
+`LLM_MODEL_<VERTICAL>` (или свой JSON), а не через глобальный `LLM_MODEL`.
+
+**Видимость.** На старте приложения (`http/app.py` lifespan → `llm.factory.log_effective_models`)
+в лог печатается effective-модель каждой вертикали и её источник
+(`env_vertical` / `vertical_overrides` / `env_default`) — рассинхрон env↔JSON виден сразу после
+деплоя. Единый сборщик провайдера — `llm.factory.build_config_provider`.
+
 ## База знаний (RAG)
 
 - Документы и чанки **изолированы по `vertical_id`**: при поиске в Qdrant всегда задаётся фильтр по вертикали (смоук-тест: `tests/test_rag_vertical_isolation.py`).
