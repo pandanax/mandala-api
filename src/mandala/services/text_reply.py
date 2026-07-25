@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Mapping
 from uuid import UUID
 
@@ -58,6 +59,25 @@ MSG_LLM_UNAVAILABLE = "Сервис ответа временно недосту
 # пользователя). Не путать с ``RAG_MAX_CONTEXT_CHARS`` (лимит символов на фрагменты KB)
 # и с ``max_tokens`` ответа LLM — см. docs/agent.md.
 TEXT_REPLY_CONTEXT_MESSAGES = 20
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+# Потолок токенов ответа LLM. ``deepseek-v4-flash`` — reasoning-модель: reasoning-токены
+# считаются в этот лимит. При слишком низком значении (был 1024) reasoning на длинном
+# контексте съедает весь бюджет и ``content`` приходит пустым — пользователь видит
+# MSG_LLM_UNAVAILABLE. Держим с запасом: это лишь потолок, платим только за реально
+# сгенерированные токены. Переопределяется переменной окружения ``LLM_MAX_TOKENS``.
+TEXT_REPLY_MAX_TOKENS = _env_positive_int("LLM_MAX_TOKENS", 8000)
 
 
 def _close_client_if_any(client: object) -> None:
@@ -211,7 +231,7 @@ def handle_inbound_text_llm(
     chat: list[ChatMessage] = [ChatMessage(role="system", content=system_prompt), *history_chat]
 
     try:
-        reply = client.complete(chat, max_tokens=1024)
+        reply = client.complete(chat, max_tokens=TEXT_REPLY_MAX_TOKENS)
     except LlmProviderError as e:
         logger.warning(
             "funnel llm %s status=%s detail=%r",

@@ -13,6 +13,7 @@ from mandala.db.engine import create_engine_from_env
 from mandala.domain import InboundEvent, handle_inbound
 from mandala.llm import ChatMessage
 from mandala.repositories import ProfileRepository
+from mandala.services.text_reply import TEXT_REPLY_MAX_TOKENS
 from mandala.services.user_identity import UserIdentityService
 
 pytestmark = [
@@ -33,9 +34,11 @@ class _CaptureLlm:
     """Сохраняет последний список сообщений в ``last_chat``."""
 
     last_chat: list[ChatMessage] | None
+    last_max_tokens: int | None
 
     def __init__(self) -> None:
         self.last_chat = None
+        self.last_max_tokens = None
 
     def complete(
         self,
@@ -46,6 +49,7 @@ class _CaptureLlm:
         max_tokens: int | None = None,
     ) -> str:
         self.last_chat = list(messages)
+        self.last_max_tokens = max_tokens
         return "stub-reply"
 
     def close(self) -> None:
@@ -92,6 +96,10 @@ def test_handle_inbound_passes_prior_messages_to_llm(engine: Engine) -> None:
     assert cap.last_chat[0].role == "system"
     assert cap.last_chat[1].role == "user"
     assert cap.last_chat[1].content == "первое сообщение"
+    # Reasoning-модель (deepseek): лимит токенов должен быть с запасом, иначе reasoning
+    # съедает бюджет и content приходит пустым (bug «Сервис ответа временно недоступен»).
+    assert cap.last_max_tokens == TEXT_REPLY_MAX_TOKENS
+    assert TEXT_REPLY_MAX_TOKENS >= 4096
 
     with engine.begin() as conn:
         handle_inbound(ev2, conn, llm_client=cap)
