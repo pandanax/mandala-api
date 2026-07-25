@@ -9,6 +9,15 @@
 #   mandala.llm.latency_ms   DGAUGE  {stat=avg|max}
 #   mandala.app.up           IGAUGE  (liveness-heartbeat = 1)
 #
+# Синтаксис query — язык YC Monitoring (НЕ PromQL):
+#   * селектор: "<имя.метрики>"{service="custom", label="value"} — имя ПЕРЕД скобками,
+#     в ДВОЙНЫХ кавычках; значения меток тоже в двойных (в HCL экранируются как \").
+#     Формы {name='...'} с одинарными кавычками / без double-quote — не строятся.
+#   * per-second из COUNTER: non_negative_derivative(<селектор>). Функции rate() в YC
+#     НЕТ (её использование = «Ошибка построения графика»).
+#   * glob в значениях меток: status="4*", route="/webhooks/telegram*".
+#   * DGAUGE (латентность avg/max) берётся селектором как есть, без derivative.
+#
 # Ресурс аддитивный: не трогает VM, Managed PostgreSQL и DNS.
 
 locals {
@@ -78,7 +87,7 @@ resource "yandex_monitoring_dashboard" "mandala" {
       title    = "RPS по роутам/методам/статусам"
       queries {
         target {
-          query = "rate({name='mandala.http.requests', service='custom'})"
+          query = "non_negative_derivative(\"mandala.http.requests\"{service=\"custom\"})"
         }
       }
     }
@@ -96,10 +105,10 @@ resource "yandex_monitoring_dashboard" "mandala" {
       title    = "Ошибки HTTP (4xx / 5xx), в секунду"
       queries {
         target {
-          query = "rate({name='mandala.http.requests', service='custom', status='4*'})"
+          query = "non_negative_derivative(\"mandala.http.requests\"{service=\"custom\", status=\"4*\"})"
         }
         target {
-          query = "rate({name='mandala.http.requests', service='custom', status='5*'})"
+          query = "non_negative_derivative(\"mandala.http.requests\"{service=\"custom\", status=\"5*\"})"
         }
       }
     }
@@ -117,10 +126,10 @@ resource "yandex_monitoring_dashboard" "mandala" {
       title    = "Латентность ответа, мс (avg / max)"
       queries {
         target {
-          query = "{name='mandala.http.latency_ms', service='custom', stat='avg'}"
+          query = "\"mandala.http.latency_ms\"{service=\"custom\", stat=\"avg\"}"
         }
         target {
-          query = "{name='mandala.http.latency_ms', service='custom', stat='max'}"
+          query = "\"mandala.http.latency_ms\"{service=\"custom\", stat=\"max\"}"
         }
       }
     }
@@ -138,10 +147,10 @@ resource "yandex_monitoring_dashboard" "mandala" {
       title    = "Health — доступность (up=1) и /health, в секунду"
       queries {
         target {
-          query = "{name='mandala.app.up', service='custom'}"
+          query = "\"mandala.app.up\"{service=\"custom\"}"
         }
         target {
-          query = "rate({name='mandala.http.requests', service='custom', route='/health'})"
+          query = "non_negative_derivative(\"mandala.http.requests\"{service=\"custom\", route=\"/health\"})"
         }
       }
     }
@@ -172,7 +181,7 @@ resource "yandex_monitoring_dashboard" "mandala" {
       title    = "Апдейты/вебхуки, в секунду"
       queries {
         target {
-          query = "rate({name='mandala.http.requests', service='custom', route='/webhooks/telegram*'})"
+          query = "non_negative_derivative(\"mandala.http.requests\"{service=\"custom\", route=\"/webhooks/telegram*\"})"
         }
       }
     }
@@ -190,10 +199,10 @@ resource "yandex_monitoring_dashboard" "mandala" {
       title    = "Ошибки вебхука (4xx / 5xx), в секунду"
       queries {
         target {
-          query = "rate({name='mandala.http.requests', service='custom', route='/webhooks/telegram*', status='4*'})"
+          query = "non_negative_derivative(\"mandala.http.requests\"{service=\"custom\", route=\"/webhooks/telegram*\", status=\"4*\"})"
         }
         target {
-          query = "rate({name='mandala.http.requests', service='custom', route='/webhooks/telegram*', status='5*'})"
+          query = "non_negative_derivative(\"mandala.http.requests\"{service=\"custom\", route=\"/webhooks/telegram*\", status=\"5*\"})"
         }
       }
     }
@@ -211,10 +220,10 @@ resource "yandex_monitoring_dashboard" "mandala" {
       title    = "Латентность обработки webhook, мс (avg / max)"
       queries {
         target {
-          query = "{name='mandala.http.latency_ms', service='custom', route='/webhooks/telegram*', stat='avg'}"
+          query = "\"mandala.http.latency_ms\"{service=\"custom\", route=\"/webhooks/telegram*\", stat=\"avg\"}"
         }
         target {
-          query = "{name='mandala.http.latency_ms', service='custom', route='/webhooks/telegram*', stat='max'}"
+          query = "\"mandala.http.latency_ms\"{service=\"custom\", route=\"/webhooks/telegram*\", stat=\"max\"}"
         }
       }
     }
@@ -232,7 +241,7 @@ resource "yandex_monitoring_dashboard" "mandala" {
       title    = "Доставка Bot API по методу и исходу, в секунду"
       queries {
         target {
-          query = "rate({name='mandala.telegram.delivery', service='custom'})"
+          query = "non_negative_derivative(\"mandala.telegram.delivery\"{service=\"custom\"})"
         }
       }
     }
@@ -263,7 +272,7 @@ resource "yandex_monitoring_dashboard" "mandala" {
       title    = "Запросы LLM по исходу, в секунду"
       queries {
         target {
-          query = "rate({name='mandala.llm.requests', service='custom'})"
+          query = "non_negative_derivative(\"mandala.llm.requests\"{service=\"custom\"})"
         }
       }
     }
@@ -281,10 +290,10 @@ resource "yandex_monitoring_dashboard" "mandala" {
       title    = "Ошибки и timeout'ы LLM, в секунду"
       queries {
         target {
-          query = "rate({name='mandala.llm.requests', service='custom', outcome='error'})"
+          query = "non_negative_derivative(\"mandala.llm.requests\"{service=\"custom\", outcome=\"error\"})"
         }
         target {
-          query = "rate({name='mandala.llm.requests', service='custom', outcome='timeout'})"
+          query = "non_negative_derivative(\"mandala.llm.requests\"{service=\"custom\", outcome=\"timeout\"})"
         }
       }
     }
@@ -302,10 +311,10 @@ resource "yandex_monitoring_dashboard" "mandala" {
       title    = "Латентность LLM, мс (avg / max)"
       queries {
         target {
-          query = "{name='mandala.llm.latency_ms', service='custom', stat='avg'}"
+          query = "\"mandala.llm.latency_ms\"{service=\"custom\", stat=\"avg\"}"
         }
         target {
-          query = "{name='mandala.llm.latency_ms', service='custom', stat='max'}"
+          query = "\"mandala.llm.latency_ms\"{service=\"custom\", stat=\"max\"}"
         }
       }
     }

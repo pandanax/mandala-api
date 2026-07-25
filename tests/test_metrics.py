@@ -19,7 +19,9 @@ from mandala.http.app import create_app
 from mandala.llm import ChatMessage, LlmProviderError, OpenAICompatibleTextClient
 from mandala.metrics import (
     APP_UP,
+    HTTP_LATENCY_MS,
     HTTP_REQUESTS,
+    LLM_LATENCY_MS,
     LLM_REQUESTS,
     TELEGRAM_DELIVERY,
     MetricPoint,
@@ -44,6 +46,14 @@ def registry() -> Iterator[MetricsRegistry]:
 def _counter(points: list[MetricPoint], name: str, labels: dict[str, str]) -> float | None:
     for p in points:
         if p.name == name and p.type == "COUNTER" and p.labels == labels:
+            return p.value
+    return None
+
+
+def _latency(points: list[MetricPoint], name: str, stat: str) -> float | None:
+    """Значение DGAUGE-латентности c меткой ``stat`` (avg|max), метки роута игнор."""
+    for p in points:
+        if p.name == name and p.type == "DGAUGE" and p.labels.get("stat") == stat:
             return p.value
     return None
 
@@ -178,7 +188,11 @@ def test_llm_metric_ok(registry: MetricsRegistry) -> None:
 
     with _llm_client(handler) as client:
         client.complete([ChatMessage(role="user", content="x")])
-    assert _counter(registry.snapshot(), LLM_REQUESTS, {"outcome": "ok"}) == 1.0
+    points = registry.snapshot()
+    assert _counter(points, LLM_REQUESTS, {"outcome": "ok"}) == 1.0
+    # Латентность LLM эмитится DGAUGE avg/max — иначе виджет «llm-latency» без данных.
+    assert _latency(points, LLM_LATENCY_MS, "avg") is not None
+    assert _latency(points, LLM_LATENCY_MS, "max") is not None
 
 
 def test_llm_metric_error(registry: MetricsRegistry) -> None:
@@ -244,12 +258,18 @@ def test_http_middleware_records_request(registry: MetricsRegistry) -> None:
         mock_get_engine.return_value = mock_engine
         resp = client.get("/health")
     assert resp.status_code == 200
+    points = registry.snapshot()
     value = _counter(
-        registry.snapshot(),
+        points,
         HTTP_REQUESTS,
         {"route": "/health", "method": "GET", "status": "200"},
     )
     assert value == 1.0
+    # Латентность ответа эмитится DGAUGE avg/max с меткой роута — иначе виджеты
+    # «app-latency» / «tg-latency» показывают «Нет данных» даже под трафиком.
+    assert _latency(points, HTTP_LATENCY_MS, "avg") is not None
+    assert _latency(points, HTTP_LATENCY_MS, "max") is not None
+    assert any(p.name == HTTP_LATENCY_MS and p.labels.get("route") == "/health" for p in points)
 
 
 # --- pusher: heartbeat и офлайн-отправка ------------------------------------------
