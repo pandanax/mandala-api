@@ -1,18 +1,22 @@
-"""Long polling: ``getUpdates`` → домен → отправка ответов (тикет 9).
+"""Long polling: ``getUpdates`` → домен → отправка ответов.
 
-HTTP webhook и маршрутизация без env — ``тикет 10`` (FastAPI).
+Мультитенантно: ``run_polling_multi`` поллит несколько токенов/вертикалей конкурентно
+(по одному потоку на токен), каждый апдейт маршрутизируется в свой ``vertical_id``.
+Маппинг токенов — ``bot_token.load_bot_token_map`` (env).
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Any
 
 from sqlalchemy.engine import Engine
 
 from mandala.adapters.telegram.billing_updates import process_telegram_billing_update
 from mandala.adapters.telegram.bot_api import TelegramBotApiClient
+from mandala.adapters.telegram.bot_token import load_bot_token_map
 from mandala.adapters.telegram.callback_ack import answer_callback_query_if_present
 from mandala.adapters.telegram.inbound_map import telegram_update_to_inbound_event
 from mandala.adapters.telegram.outbound_send import deliver_outbound_messages
@@ -30,15 +34,15 @@ _ENV_VERTICAL = "TELEGRAM_VERTICAL_ID"
 
 
 def resolve_telegram_vertical_id() -> str:
-    """``vertical_id`` для одного бота из окружения.
+    """``vertical_id`` для одного бота из окружения (обратная совместимость).
 
-    Соответствие **нескольких** токенов → вертикалей в БД/конфиге деплоя — ``TODO(тикет 10)``.
+    Для нескольких ботов используйте ``run_polling_multi`` + ``load_bot_token_map``.
     """
     raw = os.environ.get(_ENV_VERTICAL, "").strip()
     if not raw:
         msg = (
             f"Задайте {_ENV_VERTICAL} (slug из ``agent_verticals``, например astrology) "
-            "или расширьте резолвинг в тикете 10."
+            f"или несколько токенов через {_ENV_TOKEN}_<VERTICAL> / TELEGRAM_BOT_TOKENS."
         )
         raise RuntimeError(msg)
     return raw
@@ -138,3 +142,45 @@ def run_polling_forever(
                         u.get("update_id"),
                         mask_bot_token(token),
                     )
+
+
+def run_polling_multi(
+    *,
+    token_map: dict[str, str] | None = None,
+    engine: Engine | None = None,
+) -> None:
+    """Поллить несколько токенов/вертикалей конкурентно (по потоку на токен).
+
+    ``token_map`` (``vertical_id → token``) по умолчанию берётся из окружения
+    (``load_bot_token_map``). Один engine на все потоки (пул потокобезопасен).
+    Для одной вертикали работает как ``run_polling_forever`` (без лишних потоков).
+    """
+    mapping = token_map if token_map is not None else load_bot_token_map()
+    if not mapping:
+        msg = (
+            f"Не задан ни один токен: {_ENV_TOKEN}+{_ENV_VERTICAL}, "
+            f"{_ENV_TOKEN}_<VERTICAL> или TELEGRAM_BOT_TOKENS."
+        )
+        raise RuntimeError(msg)
+
+    eng = engine if engine is not None else create_engine_from_env()
+
+    if len(mapping) == 1:
+        (only_vid, only_token) = next(iter(mapping.items()))
+        run_polling_forever(bot_token=only_token, vertical_id=only_vid, engine=eng)
+        return
+
+    logger.info("telegram polling мультитенант: вертикали=%s", sorted(mapping))
+    threads: list[threading.Thread] = []
+    for vid, token in mapping.items():
+        thread = threading.Thread(
+            target=run_polling_forever,
+            kwargs={"bot_token": token, "vertical_id": vid, "engine": eng},
+            name=f"tg-poll-{vid}",
+            daemon=True,
+        )
+        thread.start()
+        threads.append(thread)
+
+    for thread in threads:
+        thread.join()

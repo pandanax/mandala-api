@@ -1,11 +1,14 @@
-"""Точка входа: ``python -m mandala.adapters.telegram`` (тикет 9)."""
+"""Точка входа: ``python -m mandala.adapters.telegram``.
+
+Поллит все сконфигурированные вертикали (см. ``bot_token.load_bot_token_map``).
+"""
 
 from __future__ import annotations
 
 import logging
 import sys
 
-from mandala.adapters.telegram.polling import run_polling_forever
+from mandala.adapters.telegram.polling import run_polling_multi
 
 
 def main() -> None:
@@ -14,7 +17,7 @@ def main() -> None:
         format="%(levelname)s %(name)s %(message)s",
         stream=sys.stdout,
     )
-    run_polling_forever()
+    run_polling_multi()
 
 
 if __name__ == "__main__":

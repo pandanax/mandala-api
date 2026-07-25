@@ -5,4 +5,5 @@
 
 __version__ = "0.1.0"
 
-# TODO: расширенный маппинг токенов Telegram → вертикаль (см. HTTP и channels в docs/).
+# Маппинг токенов Telegram → вертикаль (мультитенант): см.
+# ``mandala.adapters.telegram.bot_token.load_bot_token_map`` и ``.env.example``.

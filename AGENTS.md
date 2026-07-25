@@ -86,6 +86,20 @@ To change a vertical's model without editing JSON, set `LLM_MODEL_<VERTICAL>`. E
 source for every vertical is logged at startup (`http/app.py` lifespan →
 `llm.factory.log_effective_models`). Details: [docs/agent.md](docs/agent.md) “Выбор модели вертикали”.
 
+## Telegram: multi-tenant token map (several bots, one process)
+
+`vertical_id → bot_token` is resolved in one place — `adapters/telegram/bot_token.py`
+(`load_bot_token_map` / `get_bot_token_for_vertical`) — by precedence, highest→lowest:
+**1)** `TELEGRAM_BOT_TOKEN_<VERTICAL>` (uppercased slug) → **2)** `TELEGRAM_BOT_TOKENS` JSON
+object `{"<vertical>": "<token>"}` → **3)** legacy `TELEGRAM_BOT_TOKEN` + `TELEGRAM_VERTICAL_ID`
+(single vertical). Unknown vertical → `None` (caller logs `no_bot_token`, never raises).
+
+- **Webhook** resolves the token by `{vertical_id}` from the URL path (`http/app.py`,
+  `webhook_delivery.py`); nothing else changed there.
+- **Polling** is multi-tenant via `polling.run_polling_multi` (one daemon thread per token,
+  shared engine; single-entry map delegates to `run_polling_forever`). `python -m
+  mandala.adapters.telegram` polls every configured vertical. Env documented in `.env.example`.
+
 ## Voice messages: STT (speech → text) before the normal pipeline
 
 Telegram `voice`/`audio` messages are transcribed to text, then flow through the **existing**
