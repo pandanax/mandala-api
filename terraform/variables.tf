@@ -39,6 +39,18 @@ variable "dashboard_name" {
 
 variable "log_group_id" {
   type        = string
-  description = "ID log-группы YC Logging для ссылки на логи (yc logging group list). Пусто → ссылка на список групп."
+  description = "ID log-группы YC Logging для ссылки на логи (yc logging group list). Пусто → ссылка на список групп. После создания группы (logging.tf) можно подставить сюда её id из `terraform output logging_group_id`."
   default     = ""
+}
+
+variable "log_group_name" {
+  type        = string
+  description = "Имя log-группы YC Logging для логов приложения (уникально в каталоге). См. logging.tf."
+  default     = "mandala-logs"
+}
+
+variable "log_group_retention_period" {
+  type        = string
+  description = "Срок хранения записей в log-группе (Go-duration: s/m/h; кратно часам, максимум по лимиту YC). По умолчанию 3 суток."
+  default     = "72h"
 }

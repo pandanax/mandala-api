@@ -1,0 +1,43 @@
+# Unified Agent (YC) как docker-контейнер: читает /var/log/mandala/app.log и пушит
+# записи в log-группу YC Logging (config.yml, output plugin yc_logs).
+#
+# LOG_GROUP_ID берётся из EnvironmentFile (/etc/mandala/unified-agent.env, права 600):
+#   LOG_GROUP_ID=<terraform output logging_group_id>
+# Аутентификация — сервисный аккаунт ВМ через metadata service (в config.yml
+# iam.cloud_meta); SA нужна роль logging.writer.
+#
+# Монтируется:
+#   - config.yml (только чтение) поверх дефолтного конфига образа;
+#   - /var/log/mandala (ro) — исходный файл логов;
+#   - /var/lib/yandex/unified_agent (rw) — буфер на диске + состояние file_input.
+# --uts=host — как в примерах YC. Сеть host НЕ обязательна: metadata service и
+# logging-ingester доступны из обычной bridge-сети.
+#
+# Установка (на ВМ): см. scripts/deploy/unified-agent/install.sh и docs/logging.md.
+
+[Unit]
+Description=Mandala: Unified Agent -> YC Logging
+After=docker.service
+Requires=docker.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/install -d -m 0755 /var/lib/yandex/unified_agent
+ExecStartPre=-/usr/bin/docker rm -f mandala-unified-agent
+# LOG_GROUP_ID берётся из env-файла (docker сам его читает), поэтому системного
+# ${}-раскрытия systemd тут не требуется.
+ExecStart=/usr/bin/docker run --rm --name mandala-unified-agent \
+  --uts=host \
+  --env-file /etc/mandala/unified-agent.env \
+  -v /etc/mandala/unified-agent/config.yml:/etc/yandex/unified_agent/config.yml:ro \
+  -v /var/log/mandala:/var/log/mandala:ro \
+  -v /var/lib/yandex/unified_agent:/var/lib/yandex/unified_agent \
+  cr.yandex/yc/unified-agent
+ExecStop=/usr/bin/docker stop mandala-unified-agent
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

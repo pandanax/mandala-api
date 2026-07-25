@@ -1,0 +1,34 @@
+# Доставка stdout контейнера mandala-http в файл, который читает Unified Agent.
+#
+# Почему отдельный «шиппер», а не чтение docker-json напрямую: путь json-лога
+# зависит от id контейнера, а deploy.sh/restart_app.sh ПЕРЕСОЗДАЮТ контейнер
+# (id меняется). `docker logs -f` цепляется по ИМЕНИ (mandala-http) и переживает
+# пересоздание: при rm старого контейнера команда завершается, systemd (Restart=always)
+# поднимает её снова и она переподключается к новому контейнеру. Так критический путь
+# деплоя (restart_app.sh) остаётся НЕ ТРОНУТЫМ, а `docker logs mandala-http` продолжает
+# работать для быстрого дебага. `--tail 0` = только новые строки (без дублей истории при
+# переподключении). В файле лежат сырые `funnel …` строки (json-file драйвер отдаёт в
+# `docker logs` уже распакованный текст).
+#
+# Установка (на ВМ): см. scripts/deploy/unified-agent/install.sh и docs/logging.md.
+
+[Unit]
+Description=Mandala: ship mandala-http container stdout to /var/log/mandala/app.log
+After=docker.service
+Requires=docker.service
+# Не сдаваться, даже если контейнер ещё не поднят (бесконечные ретраи).
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# Каталог для файла лога (идемпотентно).
+ExecStartPre=/usr/bin/install -d -m 0755 /var/log/mandala
+# `exec` — чтобы сигналы шли самому docker, а не обёртке sh.
+ExecStart=/bin/sh -c 'exec /usr/bin/docker logs -f --tail 0 mandala-http >> /var/log/mandala/app.log'
+Restart=always
+RestartSec=3
+# Пишем от root: и docker-сокет, и /var/log/mandala доступны.
+User=root
+
+[Install]
+WantedBy=multi-user.target

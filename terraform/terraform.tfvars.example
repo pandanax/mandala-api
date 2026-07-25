@@ -7,5 +7,10 @@ vm_public_ip  = "84.xxx.xxx.xxx"
 # dns_ttl         = 600
 
 # Дашборд YC Monitoring (monitoring.tf):
-# log_group_id   = "e23xxxxxxxxxxxxxxxx"   # yc logging group list → ссылка на логи в шапке дашборда
+# log_group_id   = "e23xxxxxxxxxxxxxxxx"   # id log-группы → ссылка на логи в шапке дашборда.
+                                           # Возьми из `terraform output logging_group_id` после apply.
 # dashboard_name = "mandala-observability"
+
+# Log-группа YC Logging (logging.tf) — доставка логов приложения через Unified Agent:
+# log_group_name             = "mandala-logs"
+# log_group_retention_period = "72h"        # срок хранения записей (кратно часам)

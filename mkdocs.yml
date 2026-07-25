@@ -67,6 +67,7 @@ nav:
   - Деплой:
       - Yandex Cloud: deployment-yandex-cloud.md
       - Наблюдаемость (метрики, логи): monitoring.md
+      - Логи в YC Logging (доставка): logging.md
   - История и планы:
       - План реализации: implementation-plan.md
       - Черновики планов: plan/README.md

@@ -35,6 +35,7 @@ bash scripts/docs-serve.sh build    # статическая сборка в ./s
 | [agent.md](agent.md) | Оркестрация (граф), единый выбор LLM-модели вертикали, RAG, память |
 | [deployment-yandex-cloud.md](deployment-yandex-cloud.md) | Деплой в Yandex Cloud: ресурсы, сеть, БД, Docker, контракт PORT/EXPOSE/health |
 | [monitoring.md](monitoring.md) | Наблюдаемость: дашборд метрик YC Monitoring (Terraform), эмиссия метрик, логи |
+| [logging.md](logging.md) | Доставка логов приложения с ВМ в YC Logging (log-группа + Unified Agent) |
 | [implementation-plan.md](implementation-plan.md) | Исторический поэтапный план с тикетами (контекст для команды и агентов) |
 
 ### Астрология

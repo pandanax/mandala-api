@@ -67,6 +67,7 @@ ssh ubuntu@api.mandala-app.online 'set -a; . /opt/mandala/env; set +a; \
 | **`deploy.sh`** | **Единственный способ деплоя** (этот README). Удалённая сборка + E2E + авто-откат. |
 | `restart_app.sh` | Вызывается `deploy.sh` **на ВМ**: пересоздать контейнер, миграции, ждать `/health`. Лежит на ВМ в `/opt/mandala/`. |
 | `nginx-*.conf.example` | Пример vhost для Nginx на ВМ (reverse proxy на `127.0.0.1:8000`). |
+| `unified-agent/` | Доставка логов приложения в **YC Logging** (Unified Agent + systemd). Аддитивно, не трогает деплой. Гайд — [docs/logging.md](../../docs/logging.md). |
 | ~~`build_image.sh`~~ | Устаревшее: локальная сборка образа. `deploy.sh` собирает на ВМ — этот скрипт больше не нужен для деплоя. |
 | ~~`deploy-serverless.sh`~~ | Устаревшее: путь Yandex Serverless Container. Прод сейчас — ВМ; **не использовать**. |
 

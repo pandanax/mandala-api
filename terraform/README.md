@@ -4,6 +4,7 @@
 
 - **DNS** (`main.tf`) — **одна A-запись** в существующей публичной зоне (например **`api`** → публичный IP ВМ с Nginx).
 - **Дашборд наблюдаемости** (`monitoring.tf`) — `yandex_monitoring_dashboard` с виджетами Telegram / LLM / приложение + ссылка на логи. Метрики эмитит приложение (`src/mandala/metrics.py`); как включить и что собирается — **[docs/monitoring.md](../docs/monitoring.md)**.
+- **Log-группа YC Logging** (`logging.tf`) — `yandex_logging_group` для структурных логов приложения; доставка stdout контейнера в группу (Unified Agent на ВМ) — **[docs/logging.md](../docs/logging.md)**. Аддитивно (`Plan: 1 to add`), id группы — `terraform output logging_group_id`.
 
 Фактическая схема деплоя — **`docs/deployment-yandex-cloud.md`**, архитектура — **`docs/architecture.md`**. Исторический поэтапный план — **`docs/implementation-plan.md`**.
 

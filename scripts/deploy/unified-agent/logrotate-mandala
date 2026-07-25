@@ -1,0 +1,19 @@
+# Ротация файла, в который mandala-logship.service пишет stdout контейнера.
+# Ставится в /etc/logrotate.d/mandala (см. install.sh).
+#
+# copytruncate: файл усекается «на месте» (inode сохраняется), поэтому:
+#   * шиппер (`docker logs -f >> app.log`, O_APPEND) без переоткрытия продолжает
+#     писать с нового начала — сигнал/reopen ему не нужен;
+#   * Unified Agent (file_input) видит уменьшение размера и сбрасывает позицию.
+# Возможная микрогонка на момент усечения (несколько строк) допустима для логов.
+
+/var/log/mandala/app.log {
+    daily
+    rotate 7
+    size 50M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}

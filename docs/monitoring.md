@@ -137,9 +137,11 @@ terraform apply
 Приложение пишет структурные логи в **stdout** контейнера. Варианты доступа:
 
 - **Локально на ВМ:** `docker logs mandala-http --tail 200 -f` (быстрый дебаг).
-- **YC Logging** (если stdout контейнера пишется в log-группу): консоль →
-  *Logging → группа → Логи*. Прямая ссылка — в шапке дашборда (виджет `text`,
-  строится из `folder_id` + `log_group_id`).
+- **YC Logging:** консоль → *Logging → группа → Логи*. Прямая ссылка — в шапке дашборда
+  (виджет `text`, строится из `folder_id` + `log_group_id`). Доставка stdout
+  контейнера → log-группа настраивается отдельно (Unified Agent на ВМ) — полный гайд
+  **[logging.md](logging.md)** (log-группа в `terraform/logging.tf`, конфиг и установщик
+  в `scripts/deploy/unified-agent/`).
 
 Формат строк — `funnel <stage> vertical_id=… stage=… outcome=… …` (поля собирает
 `op_format`; на INFO нет текста переписки, промптов, токенов). Полезные фильтры YC

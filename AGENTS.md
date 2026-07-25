@@ -182,6 +182,13 @@ Full guide: `docs/monitoring.md`. Dashboard-as-code: `terraform/monitoring.tf`
   registry is installed, so deep library code stays safe in tests/workers.
 - **Logs** stay stdout `funnel …` lines (`src/mandala/observability.py`); dashboard links to
   the YC Logging group. Tests: `tests/test_metrics.py` (offline, no thread/cloud).
+- **Log delivery to YC Logging** (VM-docker stdout → log-group): guide `docs/logging.md`.
+  Log-group is `terraform/logging.tf` (`yandex_logging_group`, additive). Delivery is a YC
+  **Unified Agent** on the VM (`scripts/deploy/unified-agent/`): a systemd shipper tails
+  `docker logs -f --tail 0 mandala-http` into `/var/log/mandala/app.log`, the agent
+  (`file_input`→`yc_logs`, IAM via VM metadata SA needing `logging.writer`) pushes it to the
+  group. **The deploy path (`restart_app.sh`/`deploy.sh`) is intentionally untouched** — the
+  shipper reconnects across container recreation by container name; `docker logs` still works.
 
 ## Maintaining this file
 

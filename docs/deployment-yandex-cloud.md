@@ -267,8 +267,9 @@ ssh ubuntu@api.mandala-app.online \
 ### 11.4. Полезные оперативные команды
 
 ```bash
-# логи приложения
+# логи приложения (локально на ВМ)
 sudo docker logs mandala-http --tail 100 -f
+# они же в YC Logging (доставка через Unified Agent) — см. docs/logging.md
 
 # health
 curl -sS https://api.mandala-app.online/health

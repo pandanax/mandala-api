@@ -1,0 +1,65 @@
+# Unified Agent — доставка логов приложения Mandala с ВМ в YC Logging.
+#
+# Полный собственный config.yml (переопределяет дефолтный образа): читает
+# plain-text stdout контейнера mandala-http из файла /var/log/mandala/app.log и
+# пушит каждую строку записью в log-группу YC Logging (output plugin `yc_logs`).
+#
+# Как строки попадают в файл: systemd-юнит mandala-logship.service гоняет
+#   `docker logs -f --tail 0 mandala-http >> /var/log/mandala/app.log`
+# (см. mandala-logship.service). Docker для дефолтного json-file драйвера отдаёт в
+# `docker logs` уже РАСПАКОВАННЫЙ текст — поэтому в файле лежат сырые `funnel …`
+# строки без JSON-обёртки, и в YC Logging они читаются как есть (тело записи =
+# строка лога). Парсить JSON здесь НЕ нужно.
+#
+# Аутентификация — сервисный аккаунт ВМ через metadata service (iam.cloud_meta),
+# тот же путь, что у метрик (src/mandala/metrics.py). SA нужна роль `logging.writer`.
+# LOG_GROUP_ID подставляется из окружения агента (см. run-скрипт/юнит и docs/logging.md).
+#
+# Значения из окружения ($VAR) Unified Agent подставляет при старте.
+# Док-раздел: outputs.md#yc_logs_output, inputs.md#file_input.
+
+# Локальный статус-эндпоинт агента (по умолчанию только localhost) — для health/диагностики.
+status:
+  host: localhost
+  port: 16301
+
+# Буфер на диске: переживает кратковременную недоступность YC Logging и рестарт агента.
+storages:
+  - name: mandala_logs_buffer
+    plugin: fs
+    config:
+      directory: /var/lib/yandex/unified_agent/mandala_logs
+      max_partition_size: 100mb
+      max_segment_size: 10mb
+
+channels:
+  - name: yc_logging
+    channel:
+      pipe:
+        - storage_ref:
+            name: mandala_logs_buffer
+      output:
+        plugin: yc_logs
+        config:
+          # Целевая log-группа. ID = `terraform output logging_group_id`
+          # (ресурс yandex_logging_group.mandala в terraform/logging.tf).
+          log_group_id: "$LOG_GROUP_ID"
+          # IAM-токен из metadata service ВМ (сервисный аккаунт с ролью logging.writer).
+          iam:
+            cloud_meta: {}
+          # Помечаем источник, чтобы отличать от других потенциальных источников в группе.
+          resource_type: "mandala-app"
+          resource_id: "mandala-http"
+
+routes:
+  - input:
+      plugin: file_input
+      config:
+        path: /var/log/mandala/app.log
+        # Позиция чтения/inode переживают рестарт агента (не перечитывать файл заново).
+        state_directory: /var/lib/yandex/unified_agent/mandala_state
+        # Держать файл открытым — меньше нагрузки, корректная работа с активной дозаписью.
+        keep_open_file: true
+    channel:
+      channel_ref:
+        name: yc_logging
