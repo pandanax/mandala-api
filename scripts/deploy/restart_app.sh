@@ -74,6 +74,9 @@ if docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
 fi
 
 # --- запуск нового ---
+# PORT=$CONTAINER_PORT (8000 на ВМ) подхватывается и приложением, и Docker
+# HEALTHCHECK в образе (пробит в ${PORT}, не в хардкод 8080 — см. Containerfile),
+# поэтому `docker ps` на ВМ показывает контейнер healthy.
 echo "[restart_app] starting new container…"
 docker run -d \
   --name "$CONTAINER_NAME" \

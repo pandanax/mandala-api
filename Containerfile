@@ -33,7 +33,9 @@ ENV PATH="/app/.venv/bin:$PATH" \
 USER mandala
 EXPOSE 8080
 
+# Health-probe читает АКТУАЛЬНЫЙ $PORT из окружения (VM=8000, Serverless=8080),
+# а не хардкодит 8080 — иначе на VM контейнер считает себя unhealthy.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=5)"
+    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://localhost:' + (os.environ.get('PORT') or '8080') + '/health', timeout=5)"
 
 CMD ["python", "-m", "mandala.http"]

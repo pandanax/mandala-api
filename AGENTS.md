@@ -61,6 +61,19 @@ into a fresh venv pulls newer numpy whose typeshed uses PEP 695 `type` statement
 (configured `python_version = 3.11`) rejects on numpy stubs. Prefer `uv sync`, or pin
 `numpy==2.4.4 mypy==1.20.2` to match the lock before running `scripts/check.sh`.
 
+## Deploy: PORT / EXPOSE / healthcheck contract
+
+Two run paths share one image (`Containerfile`); the app binds `${PORT}`
+(`src/mandala/http/__main__.py`).
+
+- **VM + nginx:** `scripts/deploy/restart_app.sh` runs with `-e PORT=8000 -p 8000:8000`.
+- **YC Serverless Container:** uses the image default `PORT=8080`; YC routes to the
+  `EXPOSE` port, so `EXPOSE` must equal the default `PORT` (both 8080).
+- **The Docker `HEALTHCHECK` must probe `${PORT}`, never a hardcoded port** — otherwise
+  on the VM (PORT=8000) the probe hits 8080 and the container reports `unhealthy`.
+  Verified: OLD hardcoded-8080 probe → `unhealthy` on VM; `${PORT}` probe → `healthy`
+  on both paths.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
