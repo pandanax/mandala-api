@@ -1,4 +1,6 @@
 #!/bin/bash
+# УСТАРЕЛО / НЕ ИСПОЛЬЗОВАТЬ. Прод сейчас — ВМ api.mandala-app.online, а не Serverless.
+# Единый способ деплоя: `bash scripts/deploy/deploy.sh` (см. scripts/deploy/README.md).
 # Деплой в Yandex Serverless Container.
 #
 # Требования:

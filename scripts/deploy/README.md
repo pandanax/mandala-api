@@ -1,163 +1,81 @@
-# Деплой образа Mandala
+# Деплой Mandala — единый способ
 
-Целевая схема (ВМ, Nginx, Managed PostgreSQL, контейнер **`mandala-http`**) — **`docs/deployment-yandex-cloud.md`**. Ниже — сборка образа, env на ВМ, типовые команды Docker.
+> **Единый источник правды по деплою.** Один канонический способ выкатки:
+>
+> ```bash
+> bash scripts/deploy/deploy.sh
+> ```
+>
+> Всё остальное в этом каталоге — вспомогательное или устаревшее (см. ниже). Не деплой другими путями.
 
-**GitHub Actions** в этот репозиторий **не** выкладывает в Yandex — только проверки кода. Выкладка — вручную или скриптами отсюда.
+Целевая схема прода (ВМ, Nginx, Managed PostgreSQL, контейнер **`mandala-http`**) — **[docs/deployment-yandex-cloud.md](../../docs/deployment-yandex-cloud.md)**.
 
-## 1. Образ приложения
+## Как деплоить
 
-Из корня репозитория (нужен **Podman** или **Docker**):
-
-```bash
-bash scripts/deploy/build_image.sh
-# или: CONTAINER_ENGINE=docker bash scripts/deploy/build_image.sh
-# тег: MANDALA_IMAGE=mandala:1.0.0 bash scripts/deploy/build_image.sh
-# платформа по умолчанию linux/amd64 (типичная ВМ в YC); для локального Mac ARM: MANDALA_PLATFORM=linux/arm64
-```
-
-Сохранить образ на ВМ (пример; для **amd64**-ВМ образ должен быть собран с **`MANDALA_PLATFORM=linux/amd64`**):
+Из корня репозитория:
 
 ```bash
-podman save mandala:local | ssh ubuntu@<VM> 'docker load'
+bash scripts/deploy/deploy.sh
 ```
 
-Либо registry (отдельная настройка), либо `podman pull` с вашего хранилища образов.
+Скрипт делает всё сам и **гарантированно** — с ретраями и авто-откатом:
 
-## 2. Переменные окружения на ВМ
+1. **rsync** исходника на ВМ (только код: без `.git`, `.venv`, кэшей, `dist`, `.gnhf`);
+2. **нативная сборка** образа `amd64` **прямо на ВМ** (`docker build`) — без эмуляции Rosetta и без перекачки многосотмегабайтного tar;
+3. **`restart_app.sh`** на ВМ: пересоздать `mandala-http` с `--env-file /opt/mandala/env`, при `RUN_MIGRATIONS=1` — `alembic upgrade head`, дождаться `/health`;
+4. **E2E на реальном проде**: `GET /health` и `POST /webhooks/web` (`/help`);
+5. при провале рестарта или E2E — **авто-откат** на предыдущий образ и повторная проверка;
+6. **prune** старых образов на ВМ (оставляет `KEEP_IMAGES` + запущенный).
 
-Создайте файл (пример пути **`/opt/mandala/env`**, **не** в git):
+Прод не трогается, пока сборка не готова: при сбое rsync/сборки контейнер остаётся на текущем образе.
 
-- **`DATABASE_URL`** — Managed PostgreSQL (отдельная БД и пользователь для Mandala; SSL по [доке YC](https://yandex.cloud/ru/docs/managed-postgresql/operations/connect)).
-- **`LLM_BASE_URL`**, **`LLM_API_KEY`**, **`LLM_MODEL`**
-- **`TELEGRAM_BOT_TOKEN`**, **`TELEGRAM_VERTICAL_ID`**
-- **`HOST`**, **`PORT`**: внутри контейнера за Nginx из Docker-сети удобнее **`HOST=0.0.0.0`** и публикация **`-p 8000:8000`** на хост; тогда **`proxy_pass`** в Nginx указывает на **шлюз bridge → хост** (часто **`172.18.0.1:8000`** — проверьте `Gateway` в `docker inspect` для контейнера **nginx**). Пример готового конфига: **`scripts/deploy/nginx-mandala-api.conf.example`**.
-- при webhook: **`TELEGRAM_WEBHOOK_SECRET`**
-- опционально RAG: **`MANDALA_RAG_BACKEND`**, **`QDRANT_URL`**, … — см. **`.env.example`**
+### Параметры (env, с дефолтами)
 
-## 3. Миграции
-
-На ВМ (или с машины с доступом к БД), с тем же **`DATABASE_URL`**:
+- `SSH_HOST=ubuntu@api.mandala-app.online` — куда деплоим
+- `BASE_URL=https://api.mandala-app.online` — для E2E
+- `RUN_MIGRATIONS=1` — `alembic upgrade head` перед стартом (0 чтобы пропустить)
+- `REMOTE_SRC=mandala-build` — каталог сборки в `$HOME` пользователя `ubuntu`
+- `RETRIES=2` — повторов rsync/сборки при транзиентном сбое
+- `KEEP_IMAGES=3` — сколько образов оставить на ВМ
 
 ```bash
-docker run --rm --env-file /opt/mandala/env mandala:local python -m alembic upgrade head
+RUN_MIGRATIONS=0 bash scripts/deploy/deploy.sh     # без миграций
+SSH_HOST=ubuntu@staging bash scripts/deploy/deploy.sh
 ```
 
-(Команда **`alembic`** в PATH внутри образа.)
+### Предпосылки (уже настроены на проде)
 
-## 3.1. Полный деплой одной командой
+- **passwordless SSH** на ВМ (`ssh ubuntu@api.mandala-app.online true` проходит без пароля);
+- на ВМ: **docker**, файл окружения **`/opt/mandala/env`** и скрипт **`/opt/mandala/restart_app.sh`** (копия [`restart_app.sh`](restart_app.sh); при правке — обновить и на ВМ, см. ниже);
+- секреты (`DATABASE_URL`, `TELEGRAM_BOT_TOKEN`, `LLM_*`, `TELEGRAM_WEBHOOK_SECRET`) — только в `/opt/mandala/env`, в git не коммитятся.
 
-Для типового случая (правка кода → собрать → закатить на ВМ → перезапустить → smoke-check) есть скрипт-обёртка [`deploy.sh`](deploy.sh):
+### После деплоя нового кода с Telegram-фичами
+
+Telegram-вебхук живёт на стороне Telegram и деплоем не меняется. Если бот перестал отвечать —
+проверь, что вебхук указывает на ВМ (а не на старый serverless-контейнер):
 
 ```bash
-# с локальной машины из корня репозитория:
-bash scripts/deploy/deploy.sh                # тег по дате-времени
-bash scripts/deploy/deploy.sh ux-start3      # явный тег
-RUN_MIGRATIONS=1 bash scripts/deploy/deploy.sh   # с миграциями
-SSH_HOST=ubuntu@<VM> bash scripts/deploy/deploy.sh
+ssh ubuntu@api.mandala-app.online 'set -a; . /opt/mandala/env; set +a; \
+  curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"'
+# при необходимости — setWebhook на https://api.mandala-app.online/webhooks/telegram/<vertical_id>
 ```
 
-Что делает: `build_image.sh` под `linux/amd64` → `podman save` → `scp` → на ВМ `docker load` + `restart_app.sh` → ждёт `/health` → удаляет старые `localhost/mandala:*` образы на ВМ, оставляя `KEEP_REMOTE_IMAGES` самых свежих (по умолчанию 2) плюс защиту запущенного. Tar-файлы убирает сам и локально, и на ВМ.
+## Файлы каталога
 
-Требования:
-- на ВМ уже лежат `/opt/mandala/restart_app.sh` и `/opt/mandala/env`;
-- ssh-ключ настроен (без пароля).
+| Файл | Назначение |
+|------|------------|
+| **`deploy.sh`** | **Единственный способ деплоя** (этот README). Удалённая сборка + E2E + авто-откат. |
+| `restart_app.sh` | Вызывается `deploy.sh` **на ВМ**: пересоздать контейнер, миграции, ждать `/health`. Лежит на ВМ в `/opt/mandala/`. |
+| `nginx-*.conf.example` | Пример vhost для Nginx на ВМ (reverse proxy на `127.0.0.1:8000`). |
+| ~~`build_image.sh`~~ | Устаревшее: локальная сборка образа. `deploy.sh` собирает на ВМ — этот скрипт больше не нужен для деплоя. |
+| ~~`deploy-serverless.sh`~~ | Устаревшее: путь Yandex Serverless Container. Прод сейчас — ВМ; **не использовать**. |
 
-### 3.1.1. Если что-то пошло не так с диском
-
-Если на ВМ закончилось место (типичные симптомы: `podman build` висит часами, `scp` падает с `No space left`), сначала почистите старые образы вручную:
+### Обновить `restart_app.sh` на ВМ (если правил в репо)
 
 ```bash
-ssh ubuntu@api.mandala-app.online '
-  RUNNING_IMG=$(sudo docker inspect -f "{{.Config.Image}}" mandala-http 2>/dev/null || true)
-  sudo docker images --format "{{.Repository}}:{{.Tag}}" \
-    | grep "^localhost/mandala:" \
-    | grep -v "^${RUNNING_IMG}$" \
-    | xargs -r -n1 sudo docker rmi || true
-  sudo docker image prune -f
-  rm -f /tmp/mandala-*.tar
-  df -h /
-'
+scp scripts/deploy/restart_app.sh ubuntu@api.mandala-app.online:/tmp/
+ssh ubuntu@api.mandala-app.online 'sudo install -m 0755 -o root -g root /tmp/restart_app.sh /opt/mandala/restart_app.sh'
 ```
-
-Локально аналогично: `podman image prune -f`, `rm -f /tmp/mandala-*.tar`. После обновления `deploy.sh` (с шагом prune) такие ситуации возникают редко — но если кто-то деплоил руками или прерывал сборку, мусор накапливается.
-
-## 4. Запуск контейнера (пример)
-
-```bash
-docker run -d --name mandala-http --restart unless-stopped \
-  --env-file /opt/mandala/env \
-  -e HOST=0.0.0.0 -e PORT=8000 \
-  -p 8000:8000 \
-  mandala:local
-```
-
-Если Nginx в Docker проксирует на **`172.18.0.1:8000`**, на хосте должен слушать порт **8000** (не только **127.0.0.1**), иначе с bridge не достучаться.
-
-### 4.1. Рестарт после правки `/opt/mandala/env`
-
-⚠️ `docker restart mandala-http` **не** перечитывает `--env-file`. Используй скрипт **[`restart_app.sh`](restart_app.sh)** — он делает `stop` + `rm` + `run` с актуальным env-file и ждёт `/health`:
-
-```bash
-# на ВМ (скрипт уже скопирован в /opt/mandala/):
-sudo bash /opt/mandala/restart_app.sh
-
-# с миграциями (если деплоится новая схема БД):
-sudo RUN_MIGRATIONS=1 bash /opt/mandala/restart_app.sh
-```
-
-Скопировать обновлённый скрипт на ВМ:
-
-```bash
-scp scripts/deploy/restart_app.sh ubuntu@<VM>:/tmp/
-ssh ubuntu@<VM> 'sudo install -m 0755 -o root -g root /tmp/restart_app.sh /opt/mandala/restart_app.sh'
-```
-
-## 5. Nginx на той же ВМ (n8n + Docker)
-
-Готовый пример vhost: **`scripts/deploy/nginx-mandala-api.conf.example`** — скопируйте на ВМ в каталог, смонтированный в **`n8n-nginx`** (часто **`/opt/n8n/nginx/conf.d/`**), под именем вроде **`mandala-api.conf`**, затем **`docker exec n8n-nginx nginx -t`** и **`nginx -s reload`**.
-
-**Let's Encrypt** для нового имени (один раз), если у сервиса **certbot** в compose переопределён `entrypoint`:
-
-```bash
-cd /opt/n8n && docker compose run --rm --entrypoint '' certbot certbot certonly \
-  --webroot -w /var/www/certbot -d api.mandala-app.online \
-  --agree-tos --non-interactive --email admin@mandala-app.online
-```
-
-**БД и пользователь** в существующем кластере Managed PostgreSQL (пример **`yc`**):
-
-```bash
-yc managed-postgresql user create mandala_app --cluster-name n8n-postgres --password '<сгенерируйте>'
-yc managed-postgresql database create mandala --cluster-name n8n-postgres --owner=mandala_app
-```
-
-Строка **`DATABASE_URL`**: хост вида **`<имя-хоста>.mdb.yandexcloud.net`**, пулер **`6432`**, **`?sslmode=require`** — см. [подключение к MDB](https://yandex.cloud/ru/docs/managed-postgresql/operations/connect).
-
-Проверка: `curl -sS https://api.mandala-app.online/health`
-
-## 6. Telegram webhook (HTTPS)
-
-Не задавайте **`allowed_updates`** только как **`["message"]`** — иначе **не придут** **`callback_query`** и inline‑кнопки не заработают. Передайте **`allowed_updates": []`** для сброса (или явно включите **`callback_query`**).
-
-```bash
-curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"url\": \"https://api.mandala-app.online/webhooks/telegram/${TELEGRAM_VERTICAL_ID}\",
-    \"secret_token\": \"${TELEGRAM_WEBHOOK_SECRET}\",
-    \"allowed_updates\": []
-  }"
-```
-
-**`vertical_id`** в URL должен совпадать с **`TELEGRAM_VERTICAL_ID`** (см. README корня репозитория).
-
-## 7. DNS (Terraform)
-
-Каталог **`terraform/`**: только **A-запись** на публичный IP ВМ. Инструкция — **`terraform/README.md`**.
-
-## 8. systemd (опционально)
-
-Вместо ручного `podman run` можно **Quadlet** или unit-файл с **`ExecStart=podman run ...`** и **`EnvironmentFile=/opt/mandala/env`**. Полный unit — по политике вашей ВМ (TODO при стабилизации).
 
 ## Бэкапы БД
 

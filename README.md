@@ -25,7 +25,16 @@
 | [docs/deployment-yandex-cloud.md](docs/deployment-yandex-cloud.md) | Деплой в Yandex Cloud |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | Исторический поэтапный план (тикеты) — для контекста агентов и команды |
 
-Деплой скриптами и образ: **[scripts/deploy/README.md](scripts/deploy/README.md)** · Terraform (DNS): **[terraform/README.md](terraform/README.md)**.
+## Деплой
+
+**Один способ выкатки на прод** (из корня репозитория):
+
+```bash
+bash scripts/deploy/deploy.sh
+```
+
+Удалённая сборка образа на ВМ + E2E на проде + авто-откат. Единый источник правды и параметры —
+**[scripts/deploy/README.md](scripts/deploy/README.md)**. Terraform (DNS) — **[terraform/README.md](terraform/README.md)**.
 
 ## Разработка: проверки
 
@@ -41,4 +50,4 @@ bash scripts/check.sh
 
 ## Образ и локальные контейнеры
 
-Сборка: **`Containerfile`**, **`bash scripts/deploy/build_image.sh`**. Локально БД и опционально Qdrant — **`podman compose`** (см. **`.env.example`** и **getting-started**).
+Образ (**`Containerfile`**) собирается автоматически на ВМ при деплое — см. **[scripts/deploy/README.md](scripts/deploy/README.md)**. Локально БД и опционально Qdrant — **`podman compose`** (см. **`.env.example`** и **getting-started**).

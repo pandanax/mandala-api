@@ -1,94 +1,140 @@
 #!/usr/bin/env bash
-# Полный цикл деплоя Mandala с локальной машины на ВМ:
-#   1) собрать образ под linux/amd64,
-#   2) сохранить в tar,
-#   3) перекинуть на ВМ,
-#   4) загрузить в Docker и перезапустить контейнер через restart_app.sh,
-#   5) почистить tar-ы локально и на ВМ + удалить старые mandala-образы на ВМ
-#      (оставляем только текущий и предыдущий тег).
+# ЕДИНЫЙ канонический деплой Mandala. Один способ выкатки — этот скрипт.
+# См. scripts/deploy/README.md (единый источник правды по деплою).
 #
-# Использование:
-#   bash scripts/deploy/deploy.sh                 # тег по дате-времени
-#   bash scripts/deploy/deploy.sh my-tag          # явный тег
+#   Использование (из корня репозитория):
+#     bash scripts/deploy/deploy.sh
 #
-# Параметры окружения (с дефолтами):
-#   SSH_HOST   — куда деплоим                  (по умолчанию ubuntu@api.mandala-app.online)
-#   PLATFORM   — платформа сборки              (по умолчанию linux/amd64)
-#   ENGINE     — локальный движок              (по умолчанию podman, можно docker)
-#   RUN_MIGRATIONS=1 — выполнить alembic upgrade head перед стартом нового контейнера
-#   KEEP_REMOTE_IMAGES=N — сколько последних образов mandala оставить на ВМ (по умолчанию 2)
+#   Что делает (надёжно, с ретраями и авто-откатом):
+#     1) rsync исходника на ВМ (без .git/.venv/кэшей — только код);
+#     2) НАТИВНАЯ сборка образа amd64 прямо на ВМ (docker build) — без эмуляции и tar;
+#     3) restart_app.sh: пересоздать контейнер + alembic upgrade head + ждать /health;
+#     4) E2E на реальном проде (health + web /help);
+#     5) при любом провале после переключения — АВТО-ОТКАТ на предыдущий образ;
+#     6) prune старых образов на ВМ.
 #
-# Перед запуском убедитесь, что:
-#   - на ВМ лежит /opt/mandala/restart_app.sh и /opt/mandala/env;
-#   - SSH-ключ настроен (ssh "$SSH_HOST" 'true' проходит без пароля).
+#   Переменные (с дефолтами):
+#     SSH_HOST=ubuntu@api.mandala-app.online   куда деплоим
+#     BASE_URL=https://api.mandala-app.online   для e2e
+#     RUN_MIGRATIONS=1                          alembic upgrade head перед стартом
+#     REMOTE_SRC=mandala-build                  каталог сборки в $HOME ubuntu на ВМ
+#     RETRIES=2                                 повторов rsync/сборки при сбое
+#     KEEP_IMAGES=3                             сколько образов оставить на ВМ
+#     TAG=<дата-время>                          тег образа
+#
+#   Требования: passwordless SSH на ВМ; на ВМ — docker и /opt/mandala/{env,restart_app.sh}.
+set -uo pipefail
 
-set -euo pipefail
+# Предотвращаем сон на время сборки (только macOS и только если ещё не под caffeinate).
+if command -v caffeinate >/dev/null 2>&1 && [[ -z "${MANDALA_DEPLOY_CAFF:-}" ]]; then
+  exec caffeinate -ims env MANDALA_DEPLOY_CAFF=1 bash "$0" "$@"
+fi
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$ROOT"
-
-TAG="${1:-$(date +%Y%m%d-%H%M%S)}"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SSH_HOST="${SSH_HOST:-ubuntu@api.mandala-app.online}"
-PLATFORM="${PLATFORM:-linux/amd64}"
-ENGINE="${ENGINE:-podman}"
-RUN_MIGRATIONS="${RUN_MIGRATIONS:-0}"
-KEEP_REMOTE_IMAGES="${KEEP_REMOTE_IMAGES:-2}"
+BASE_URL="${BASE_URL:-https://api.mandala-app.online}"
+RUN_MIGRATIONS="${RUN_MIGRATIONS:-1}"
+REMOTE_SRC="${REMOTE_SRC:-mandala-build}"
+RETRIES="${RETRIES:-2}"
+KEEP_IMAGES="${KEEP_IMAGES:-3}"
+TAG="${TAG:-$(date +%Y%m%d-%H%M%S)}"
+IMAGE="localhost/mandala:${TAG}"
+SSH=(ssh -o BatchMode=yes -o ConnectTimeout=12 "$SSH_HOST")
 
-LOCAL_IMAGE="mandala:${TAG}"
-REMOTE_IMAGE="localhost/mandala:${TAG}"
-TAR_PATH="/tmp/mandala-${TAG}.tar"
+log() { echo "[deploy] $*"; }
 
-echo "[deploy] tag:        $TAG"
-echo "[deploy] platform:   $PLATFORM"
-echo "[deploy] engine:     $ENGINE"
-echo "[deploy] ssh host:   $SSH_HOST"
-echo "[deploy] tar path:   $TAR_PATH"
-echo
-
-# 1) build
-echo "[deploy] step 1/4: build image"
-MANDALA_IMAGE="$LOCAL_IMAGE" \
-MANDALA_PLATFORM="$PLATFORM" \
-CONTAINER_ENGINE="$ENGINE" \
-  bash "$ROOT/scripts/deploy/build_image.sh"
-
-# 2) save → 3) scp → 4) load + restart
-cleanup_local() {
-  rm -f "$TAR_PATH" 2>/dev/null || true
+# Повторяем команду до (RETRIES+1) раз с нарастающей паузой.
+retry() {
+  local n=0
+  until "$@"; do
+    n=$((n + 1))
+    if (( n > RETRIES )); then return 1; fi
+    log "повтор ($n/$RETRIES) через $((n * 5))с"
+    sleep $((n * 5))
+  done
 }
-trap cleanup_local EXIT
+
+echo "==================== mandala deploy (${TAG}) ===================="
+cd "$REPO" || { log "нет каталога репозитория"; exit 1; }
+log "repo=$REPO  ssh=$SSH_HOST  image=$IMAGE"
+log "ветка: $(git rev-parse --abbrev-ref HEAD 2>/dev/null) @ $(git rev-parse --short HEAD 2>/dev/null)"
+
+# Текущий прод-образ — цель отката.
+OLD_IMG="$("${SSH[@]}" 'sudo docker inspect -f "{{.Config.Image}}" mandala-http 2>/dev/null' | tr -d "[:space:]")"
+log "текущий прод-образ (для отката): ${OLD_IMG:-<неизвестен>}"
+
+rollback() {
+  log "-------- ROLLBACK на ${OLD_IMG:-<нет>} --------"
+  if [[ -z "$OLD_IMG" ]]; then
+    log "‼️ откат невозможен (старый образ неизвестен). Диагностика:"
+    log "   ${SSH[*]} 'sudo docker ps -a; sudo docker logs mandala-http --tail 80'"
+    return 1
+  fi
+  "${SSH[@]}" "sudo MANDALA_IMAGE='$OLD_IMG' bash /opt/mandala/restart_app.sh" \
+    && log "↩️ откат выполнен на $OLD_IMG" \
+    || log "‼️ откат ТОЖЕ упал — нужно ручное вмешательство"
+}
+
+prod_e2e() {
+  log "-------- E2E на проде --------"
+  local h code r rcode i
+  # health (несколько попыток — прод мог только что стартовать)
+  for i in 1 2 3 4 5; do
+    h="$(curl -sS -m 12 -w $'\n%{http_code}' "$BASE_URL/health" 2>&1)"; code="${h##*$'\n'}"
+    [[ "$code" == 200 && "$h" == *'"status":"ok"'* ]] && break
+    sleep 3
+  done
+  log "[health] http=$code ${h%$'\n'*}"
+  [[ "$code" == 200 && "$h" == *'"status":"ok"'* ]] || { log "E2E FAIL: health"; return 1; }
+  # web /help — реальный пайплайн (vertical -> handle_inbound -> команда -> меню)
+  r="$(curl -sS -m 25 -X POST "$BASE_URL/webhooks/web" \
+        -H 'Content-Type: application/json' -H "X-External-User-Id: deploy-e2e-$TAG" \
+        -d '{"text":"/help","vertical_id":"astrology"}' -w $'\n%{http_code}' 2>&1)"
+  rcode="${r##*$'\n'}"
+  log "[web /help] http=$rcode"
+  [[ "$rcode" == 200 && "$r" == *'"messages"'* ]] || { log "E2E FAIL: web /help ($rcode)"; return 1; }
+  log "E2E OK"
+  return 0
+}
+
+# 1) rsync исходника (ретраи)
+log "-------- rsync исходника -> $SSH_HOST:~/$REMOTE_SRC --------"
+retry rsync -az --delete -e 'ssh -o BatchMode=yes -o ConnectTimeout=12' \
+  --exclude '.git' --exclude '.venv' --exclude 'node_modules' \
+  --exclude '.mypy_cache' --exclude '.pytest_cache' --exclude '.ruff_cache' \
+  --exclude '__pycache__' --exclude 'dist' --exclude 'terraform/.terraform' \
+  --exclude 'cache' --exclude '*.tar' --exclude '.DS_Store' --exclude '.gnhf' \
+  "$REPO/" "$SSH_HOST:$REMOTE_SRC/" || { log "❌ rsync упал (прод не тронут)"; exit 1; }
+
+# 2) нативная сборка на ВМ (ретраи)
+log "-------- docker build на ВМ (нативный amd64) --------"
+retry "${SSH[@]}" "cd ~/$REMOTE_SRC && sudo docker build -f Containerfile -t '$IMAGE' ." \
+  || { log "❌ сборка на ВМ упала (прод не тронут, остаётся ${OLD_IMG})"; exit 1; }
+
+# 3) переключение на новый образ (restart_app.sh сам ждёт /health)
+log "-------- restart_app.sh -> $IMAGE (RUN_MIGRATIONS=$RUN_MIGRATIONS) --------"
+if ! "${SSH[@]}" "sudo MANDALA_IMAGE='$IMAGE' RUN_MIGRATIONS='$RUN_MIGRATIONS' bash /opt/mandala/restart_app.sh"; then
+  log "❌ рестарт/health нового образа не прошёл"
+  rollback
+  exit 1
+fi
+
+# 4) E2E на проде
+if ! prod_e2e; then
+  log "❌ E2E не прошёл — откатываюсь"
+  rollback
+  prod_e2e && log "после отката прод отвечает" || log "‼️ после отката E2E тоже не ок — вмешаться вручную"
+  exit 1
+fi
+
+# 5) prune старых образов
+log "-------- prune (оставляю $KEEP_IMAGES + запущенный) --------"
+"${SSH[@]}" "
+  RUNNING=\$(sudo docker inspect -f '{{.Config.Image}}' mandala-http 2>/dev/null || true)
+  sudo docker images --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}' \
+    | grep -E 'localhost/mandala:' | sort -r | tail -n +$((KEEP_IMAGES + 1)) | cut -f2 \
+    | grep -v \"^\${RUNNING}\$\" | xargs -r -n1 sudo docker rmi >/dev/null 2>&1 || true
+" || true
 
 echo
-echo "[deploy] step 2/4: save image to $TAR_PATH"
-"$ENGINE" save "$REMOTE_IMAGE" -o "$TAR_PATH"
-ls -lh "$TAR_PATH"
-
-echo
-echo "[deploy] step 3/4: scp to $SSH_HOST:$TAR_PATH"
-scp "$TAR_PATH" "${SSH_HOST}:${TAR_PATH}"
-
-echo
-echo "[deploy] step 4/4: load + restart + prune on remote"
-# shellcheck disable=SC2029
-ssh "$SSH_HOST" "
-  set -e
-  sudo docker load -i '$TAR_PATH'
-  sudo MANDALA_IMAGE='$REMOTE_IMAGE' RUN_MIGRATIONS='$RUN_MIGRATIONS' bash /opt/mandala/restart_app.sh
-  rm -f '$TAR_PATH'
-  # Удаляем старые mandala-образы, оставляя только KEEP_REMOTE_IMAGES самых свежих,
-  # плюс защищаем образ запущенного контейнера от удаления.
-  RUNNING_IMG=\$(sudo docker inspect -f '{{.Config.Image}}' mandala-http 2>/dev/null || true)
-  sudo docker images --format '{{.Repository}}:{{.Tag}} {{.CreatedAt}}' \
-    | awk '\$1 ~ /^localhost\/mandala:/ {print}' \
-    | sort -k2,99 -r \
-    | tail -n +$((KEEP_REMOTE_IMAGES + 1)) \
-    | awk '{print \$1}' \
-    | while read -r img; do
-        if [ \"\$img\" = \"\$RUNNING_IMG\" ]; then continue; fi
-        echo \"[deploy] prune old image: \$img\"
-        sudo docker rmi \"\$img\" >/dev/null 2>&1 || true
-      done
-"
-
-echo
-echo "[deploy] done. image=$REMOTE_IMAGE"
+log "✅ ДЕПЛОЙ УСПЕШЕН: $IMAGE на $BASE_URL — health + web e2e зелёные."

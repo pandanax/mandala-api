@@ -1,5 +1,13 @@
 # Деплой Mandala в Yandex Cloud (фактическая схема MVP)
 
+> **Как выкатить новый код на прод — один способ:**
+> ```bash
+> bash scripts/deploy/deploy.sh
+> ```
+> Удалённая сборка образа на ВМ + миграции + E2E на проде + авто-откат. Единый источник правды по
+> деплою и все параметры — **[scripts/deploy/README.md](../scripts/deploy/README.md)**. Этот документ
+> ниже описывает саму инфраструктуру YC (что где лежит), а не альтернативные способы выкатки.
+
 Документ фиксирует **текущее** состояние интеграции с Yandex Cloud: что где лежит, как устроено, как обновлять. Общая архитектура — в [architecture.md](architecture.md); установка, env, первый запуск и чеклист после инсталляции — в [getting-started.md](getting-started.md).
 
 Секреты (токены, пароли БД) **не** описываются здесь в открытом виде — только **имена переменных** и **файлы**, куда их класть.
@@ -97,7 +105,7 @@
 Типовой контур (инфра редко / образ и сервис чаще):
 
 1. **Инфра редко** — Terraform в **`terraform/`** (сейчас по сути только DNS; state локально, в git не коммитить **`terraform.tfstate`**, **`terraform.tfvars`**).
-2. **Образ / сервис часто** — сборка образа (**`podman`/`docker` build** с **`MANDALA_PLATFORM=linux/amd64`** для типичной ВМ YC), передача на ВМ (**`docker load`** или registry), **`docker restart mandala-http`** или пересоздание контейнера, при смене схемы — **`docker run … python -m alembic upgrade head`** (см. **`scripts/deploy/README.md`**).
+2. **Образ / сервис часто** — один способ: **`bash scripts/deploy/deploy.sh`** (удалённая сборка образа на ВМ + миграции + пересоздание контейнера + E2E на проде + авто-откат). Единый источник правды — **[scripts/deploy/README.md](../scripts/deploy/README.md)**.
 
 **CI (GitHub Actions)** в этот репозиторий **не** выкладывает в YC — только проверки кода.
 
@@ -117,13 +125,15 @@
 
 ### 7.1. Обновить только Mandala (часто)
 
-1. Собрать образ локально: **`bash scripts/deploy/build_image.sh`** (при необходимости **`MANDALA_IMAGE`**, **`MANDALA_PLATFORM`**).
-2. **`podman save … | ssh ubuntu@<IP> docker load`** (или свой registry + **`docker pull`**).
-3. На ВМ: рестарт скриптом, при необходимости с миграциями —
-   `sudo RUN_MIGRATIONS=1 bash /opt/mandala/restart_app.sh`
-   (скрипт — **[scripts/deploy/restart_app.sh](../scripts/deploy/restart_app.sh)**, см. также §11 ниже).
+Один способ — из корня репозитория:
 
-⚠️ **Не использовать `docker restart mandala-http`** — он **не** перечитывает `--env-file`. После правки `/opt/mandala/env` контейнер обязательно пересоздавать (`stop` + `rm` + `run`). Скрипт делает это сам.
+```bash
+bash scripts/deploy/deploy.sh
+```
+
+Он сам: rsync исходника на ВМ → **сборка образа на ВМ** → пересоздание контейнера с `--env-file /opt/mandala/env` → при `RUN_MIGRATIONS=1` (дефолт) `alembic upgrade head` → ждёт `/health` → E2E на проде → авто-откат при сбое. Параметры и предпосылки — **[scripts/deploy/README.md](../scripts/deploy/README.md)**. Переключение на ВМ делает **[scripts/deploy/restart_app.sh](../scripts/deploy/restart_app.sh)** (лежит в `/opt/mandala/`).
+
+⚠️ **Не использовать `docker restart mandala-http`** — он **не** перечитывает `--env-file`. После правки `/opt/mandala/env` контейнер обязательно пересоздавать (`stop` + `rm` + `run`). `deploy.sh` / `restart_app.sh` делают это сами.
 
 ### 7.2. Обновить Nginx / TLS
 

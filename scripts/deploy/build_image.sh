@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# УСТАРЕЛО для деплоя: единый способ выкатки — `bash scripts/deploy/deploy.sh`
+# (собирает образ прямо на ВМ). Этот скрипт оставлен только для локальной сборки образа.
 # Сборка образа Mandala (тикет 23). Из корня репозитория: bash scripts/deploy/build_image.sh
 set -euo pipefail
 

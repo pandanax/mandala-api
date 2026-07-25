@@ -138,6 +138,7 @@ Observability (observability.py) # op_format, mask_api_key
 - **Health**: `GET /health` (SELECT 1)
 
 ### Деплой
+- **Единый способ выкатки:** `bash scripts/deploy/deploy.sh` — удалённая сборка образа на ВМ + миграции + E2E на проде + авто-откат. Единый источник правды: [`scripts/deploy/README.md`](../../scripts/deploy/README.md). Устаревшее (не использовать): `deploy-serverless.sh`, `build_image.sh`.
 - Containerfile + `scripts/deploy/`
 - Yandex Cloud: VM `n8n-server`, Managed PostgreSQL `n8n-postgres`, Nginx, certbot
 - Домен: `api.mandala-app.online`
