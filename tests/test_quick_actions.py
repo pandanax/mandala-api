@@ -7,6 +7,7 @@ from mandala.verticals.quick_actions import (
     FORECAST_MENU_CODE,
     expand_inbound_quick_action,
     is_forecast_menu,
+    is_forecast_request,
 )
 
 
@@ -34,6 +35,30 @@ def test_is_forecast_menu() -> None:
     assert is_forecast_menu("  __forecast_menu__  ") is True
     assert is_forecast_menu("mdl:natal") is False
     assert is_forecast_menu(None) is False
+
+
+def test_is_forecast_request_generic_text_true() -> None:
+    # свободный текст-запрос прогноза без периода → показать меню-кнопки
+    for t in ("прогноз", "хочу прогноз", "дай прогноз", "Прогноз?", "можно гороскоп"):
+        assert is_forecast_request(t) is True, t
+
+
+def test_is_forecast_request_with_period_false() -> None:
+    # период уже назван — не перехватываем, пусть отвечает LLM напрямую
+    for t in ("прогноз на неделю", "дай прогноз на сегодня", "прогноз на месяц", "гороскоп на год"):
+        assert is_forecast_request(t) is False, t
+
+
+def test_is_forecast_request_non_forecast_false() -> None:
+    for t in ("натальная карта", "привет", "", None, "/start"):
+        assert is_forecast_request(t) is False
+
+
+def test_is_forecast_request_ignores_long_context() -> None:
+    long_text = (
+        "Расскажи, чем астрологический прогноз отличается от гадания и как его читать правильно"
+    )
+    assert is_forecast_request(long_text) is False
 
 
 def test_expand_unknown_code_unchanged() -> None:

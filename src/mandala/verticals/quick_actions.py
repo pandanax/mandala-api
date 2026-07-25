@@ -121,6 +121,31 @@ def is_forecast_menu(text: str | None) -> bool:
     return text is not None and text.strip() == FORECAST_MENU_CODE
 
 
+# Слова-интенты «прогноз» в свободном тексте и слова конкретного периода.
+_FORECAST_WORDS = ("прогноз", "forecast", "гороскоп")
+_PERIOD_WORDS = ("сегодн", "завтра", "недел", "месяц", "год", "квартал", "выходн", "день")
+
+
+def is_forecast_request(text: str | None) -> bool:
+    """True, если это свободный текст-запрос прогноза БЕЗ указанного периода.
+
+    Такой запрос надо превратить в подменю кнопок (сегодня/неделя/месяц/год), а не
+    отправлять в LLM (иначе модель просит уточнить период текстом). Если период уже
+    назван в тексте («прогноз на неделю») — не перехватываем: пусть отвечает LLM.
+    """
+    if text is None:
+        return False
+    t = text.strip().lower()
+    if not t or t.startswith("/"):
+        return False
+    if not any(w in t for w in _FORECAST_WORDS):
+        return False
+    if any(p in t for p in _PERIOD_WORDS):
+        return False
+    # Короткие сообщения — это именно «дай прогноз», а не длинный вопрос со словом «прогноз».
+    return len(t) <= 40
+
+
 def is_reset_button(text: str | None) -> bool:
     """Вернуть True если нажата кнопка сброса."""
     return text is not None and text.strip() == RESET_BUTTON_TEXT

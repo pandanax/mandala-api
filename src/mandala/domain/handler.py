@@ -22,6 +22,7 @@ from mandala.verticals.quick_actions import (
     ASTROLOGY_REPLY_KEYBOARD,
     expand_inbound_quick_action,
     is_forecast_menu,
+    is_forecast_request,
     is_reset_button,
     is_show_profile,
     is_system_switch,
@@ -121,6 +122,21 @@ def handle_inbound(
             return _handle_forecast_menu()
         event_for_pipeline = event.model_copy(update={"text": expanded})
 
+    # Свободный текст-интент «прогноз» без периода → сразу кнопки-периоды, а не LLM
+    # (иначе модель просит уточнить период текстом).
+    if event.vertical_id.strip() == "astrology" and is_forecast_request(event_for_pipeline.text):
+        logger.info(
+            "funnel inbound %s",
+            op_format(
+                vertical_id=event.vertical_id,
+                user_id=uid,
+                channel=event.channel,
+                stage="route",
+                intent="forecast_menu",
+            ),
+        )
+        return _handle_forecast_menu()
+
     if post_intake_intent(event_for_pipeline.text) == "image":
         logger.info(
             "funnel inbound %s",
@@ -181,7 +197,10 @@ def _handle_forecast_menu() -> list[OutboundMessage]:
     """Показать inline-подменю выбора периода прогноза."""
     return [
         OutboundMessage(
-            text="Выберите период прогноза:",
+            text=(
+                "Выберите период прогноза или напишите свой "
+                "(например «на выходные», «на 2026 год»):"
+            ),
             buttons=[
                 [
                     {"text": "📅 Сегодня", "callback_data": "mdl:fc_today"},
