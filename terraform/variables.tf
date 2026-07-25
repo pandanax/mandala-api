@@ -30,3 +30,15 @@ variable "vm_public_ip" {
   type        = string
   description = "Публичный IPv4 ВМ с Nginx (например yc compute instance get --name n8n-server)."
 }
+
+variable "dashboard_name" {
+  type        = string
+  description = "Имя дашборда YC Monitoring (уникально в каталоге)."
+  default     = "mandala-observability"
+}
+
+variable "log_group_id" {
+  type        = string
+  description = "ID log-группы YC Logging для ссылки на логи (yc logging group list). Пусто → ссылка на список групп."
+  default     = ""
+}

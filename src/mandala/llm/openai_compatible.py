@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Sequence
 from typing import Any
 
@@ -10,6 +11,7 @@ import httpx
 
 from mandala.llm.exceptions import LlmProviderError
 from mandala.llm.types import ChatMessage
+from mandala.metrics import record_llm
 
 _DEFAULT_TIMEOUT = httpx.Timeout(connect=15.0, read=120.0, write=15.0, pool=15.0)
 
@@ -68,15 +70,28 @@ class OpenAICompatibleTextClient:
             "Content-Type": "application/json",
         }
 
+        start = time.perf_counter()
+        outcome = "error"
         try:
-            response = self._client.post(url, headers=headers, json=payload)
-        except httpx.RequestError as e:
-            raise LlmProviderError(
-                f"LLM HTTP request failed: {e}",
-                provider_detail=str(e),
-            ) from e
+            try:
+                response = self._client.post(url, headers=headers, json=payload)
+            except httpx.TimeoutException as e:
+                outcome = "timeout"
+                raise LlmProviderError(
+                    f"LLM HTTP request failed: {e}",
+                    provider_detail=str(e),
+                ) from e
+            except httpx.RequestError as e:
+                raise LlmProviderError(
+                    f"LLM HTTP request failed: {e}",
+                    provider_detail=str(e),
+                ) from e
 
-        return _parse_response(response)
+            result = _parse_response(response)
+            outcome = "ok"
+            return result
+        finally:
+            record_llm(outcome=outcome, elapsed_ms=(time.perf_counter() - start) * 1000.0)
 
 
 def _parse_response(response: httpx.Response) -> str:

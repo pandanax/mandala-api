@@ -12,6 +12,7 @@ from typing import Any, cast
 import httpx
 
 from mandala.adapters.telegram.secrets import mask_bot_token
+from mandala.metrics import record_telegram_delivery
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,16 @@ class TelegramBotApiClient:
         return f"{self._base}/bot{self._token}/{method}"
 
     def call(self, method: str, payload: dict[str, Any] | None = None) -> Any:
+        """POST JSON с ретраями; попутно метрика доставки Telegram (метод/исход)."""
+        outcome = "error"
+        try:
+            result = self._call_impl(method, payload)
+            outcome = "ok"
+            return result
+        finally:
+            record_telegram_delivery(method=method, outcome=outcome)
+
+    def _call_impl(self, method: str, payload: dict[str, Any] | None = None) -> Any:
         """POST JSON; ретраи на 429 и 5xx; в логах — только ``mask_bot_token``."""
         body = payload or {}
         masked = mask_bot_token(self._token)

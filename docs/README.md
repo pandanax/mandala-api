@@ -18,6 +18,7 @@
 | [quotas-and-plans.md](quotas-and-plans.md) | Планы, лимиты (в т.ч. 0 картинок), учёт usage |
 | [agent.md](agent.md) | Оркестрация (граф), роутинг моделей, RAG, память диалога |
 | [deployment-yandex-cloud.md](deployment-yandex-cloud.md) | Деплой в Yandex Cloud: ресурсы, сеть, БД, Docker, Terraform, обновления |
+| [monitoring.md](monitoring.md) | Наблюдаемость: дашборд метрик YC Monitoring (Terraform), эмиссия метрик, логи |
 | [implementation-plan.md](implementation-plan.md) | Исторический поэтапный план с тикетами (контекст для команды и агентов) |
 
 ## Принципы

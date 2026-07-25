@@ -5,3 +5,7 @@ dns_zone_id   = "dns8xxxxxxxxxxxxxxxx"
 vm_public_ip  = "84.xxx.xxx.xxx"
 # dns_record_name = "api"
 # dns_ttl         = 600
+
+# Дашборд YC Monitoring (monitoring.tf):
+# log_group_id   = "e23xxxxxxxxxxxxxxxx"   # yc logging group list → ссылка на логи в шапке дашборда
+# dashboard_name = "mandala-observability"

@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import AsyncIterator
+import time
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from mandala import metrics
 from mandala.adapters.telegram.billing_updates import process_telegram_billing_update
 from mandala.adapters.telegram.bot_api import TelegramBotApiClient
 from mandala.adapters.telegram.bot_commands import register_bot_commands_if_configured
@@ -47,10 +49,18 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     Также логируем effective-модель каждой вертикали, чтобы рассинхрон
     ``LLM_MODEL`` (env) ↔ bundled ``vertical_overrides.json`` был виден сразу после деплоя.
+
+    Здесь же включаем эмиссию метрик в YC Monitoring, если задан
+    ``MANDALA_METRICS_ENABLED`` (см. :mod:`mandala.metrics`); при выключенных
+    метриках это no-op и фоновый поток не создаётся.
     """
     log_effective_models(logger)
     await register_bot_commands_if_configured()
-    yield
+    metrics.init_from_env()
+    try:
+        yield
+    finally:
+        metrics.shutdown()
 
 
 def create_app() -> FastAPI:
@@ -61,6 +71,30 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=_lifespan,
     )
+
+    @app.middleware("http")
+    async def _metrics_middleware(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Метрики приложения: RPS, латентность и статусы по нормализованному роуту.
+
+        Покрывает и здоровье (``/health``), и Telegram-webhook (по метке ``route``).
+        Инструментация — no-op, если метрики выключены.
+        """
+        start = time.perf_counter()
+        status = 500
+        try:
+            response = await call_next(request)
+            status = response.status_code
+            return response
+        finally:
+            metrics.record_http_request(
+                route=metrics.normalize_route(request.url.path),
+                method=request.method,
+                status=status,
+                elapsed_ms=(time.perf_counter() - start) * 1000.0,
+            )
+
     app.include_router(web_chat_router)
 
     @app.get("/health")

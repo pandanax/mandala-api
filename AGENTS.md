@@ -105,6 +105,23 @@ text pipeline (`handle_inbound` → `text_reply`) unchanged — the reply logic 
   the default** (`STT_LANGUAGE=ru`, empty = auto). Not configured (no URL+key) → voice degrades
   softly. Env documented in `.env.example`.
 
+## Observability: metrics dashboard + logs (YC Monitoring)
+
+Full guide: `docs/monitoring.md`. Dashboard-as-code: `terraform/monitoring.tf`
+(`yandex_monitoring_dashboard`, widgets for Telegram / LLM / app + a logs link).
+
+- **Metrics are emitted by the app** into YC Monitoring `service=custom` — authoritative
+  code `src/mandala/metrics.py`. Metric names there are the single source of truth; the
+  dashboard queries must match them. Off by default; enable with `MANDALA_METRICS_ENABLED=1`
+  + `YC_MONITORING_FOLDER_ID` in `/opt/mandala/env`, then recreate the container. Disabled =
+  full no-op (no thread, no traffic); IAM token comes from the VM service account (metadata).
+- **Instrument only at subsystem boundaries, by wrapping** (never rewrite logic): LLM in
+  `llm/openai_compatible.py` (`complete`), Telegram delivery in `adapters/telegram/bot_api.py`
+  (`call`), app/webhook via the HTTP middleware in `http/app.py`. Recorders are no-ops unless a
+  registry is installed, so deep library code stays safe in tests/workers.
+- **Logs** stay stdout `funnel …` lines (`src/mandala/observability.py`); dashboard links to
+  the YC Logging group. Tests: `tests/test_metrics.py` (offline, no thread/cloud).
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
