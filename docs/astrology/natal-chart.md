@@ -32,13 +32,17 @@
 
 1. Парсинг `birth_date` (DD.MM.YYYY) → (day, month, year)
 2. Парсинг `birth_time` (HH:MM или «не знаю») → (hour, minute); при неизвестном — 12:00
-3. Геокодинг `birth_place` через Nominatim → (lat, lng)
-4. Определение часового пояса через TimezoneFinder
-5. Создание `AstrologicalSubject` с `zodiac_type="Tropic"|"Sidereal"`, `online=False`
+3. Геокодинг `birth_place` через Nominatim → (lat, lng, `tz_str`)
+4. Определение часового пояса через TimezoneFinder (`tz_str` передаётся в kerykeion,
+   который конвертирует **локальное время места рождения → UT**, не UTC)
+5. Создание `AstrologicalSubject` в **строго одной школе** (см. ниже): `western` →
+   `zodiac_type="Tropic"` + дома Placidus; `vedic` → `zodiac_type="Sidereal"`,
+   `sidereal_mode="LAHIRI"` + дома whole-sign (`houses_system_identifier="W"`);
+   `online=False`
 6. Извлечение позиций 10 планет из `subject.<planet>`: sign, degree, house, retrograde
 7. Извлечение Асцендента из `subject.first_house.sign`
 8. Расчёт аспектов через `AspectsFactory.single_chart_aspects(subject.model())`
-9. Возврат структурированного dict (см. ниже)
+9. Возврат структурированного dict (см. ниже) с `chart_system_key` = `"western"`/`"vedic"`
 
 ### Структура возвращаемого dict
 
@@ -47,7 +51,8 @@
   "sun_sign": "Овен",         # знак Солнца
   "moon_sign": "Рак",          # знак Луны
   "ascendant": "Стрелец",      # знак Асцендента (None если время неизвестно)
-  "chart_system": "western",   # "western" или "vedic"
+  "chart_system": "западная (тропическая)",  # человекочитаемая метка школы
+  "chart_system_key": "western",  # машинный ключ школы: "western" | "vedic"
   "calculated_at": "2025-07-25T...",  # ISO timestamp расчёта
   "birth_place_resolved": "Moscow, Russia",  # разрешённое название
   "planets": {
@@ -91,9 +96,31 @@
 - Дома неизвестны — используется синтетическая карта (noon chart или whole-sign по знаку Солнца)
 - Рекомендация боту: явно сообщать пользователю о снижении точности
 
-## Что нужно добавить в код
+## Две школы, которые никогда не смешиваются
 
-- **Транзиты** — позиции планет на произвольную дату/сейчас (см. [forecasting-transits.md](forecasting-transits.md))
+Позиции считаются в Python (Swiss Ephemeris через kerykeion) и передаются в промпт LLM
+как **данные** — модель интерпретирует, но никогда не считает и не выдумывает позиции.
+
+| Школа | Зодиак | Айанамша | Дома |
+|-------|--------|----------|------|
+| `western` | Тропический | — | Placidus |
+| `vedic` | Сидерический | **Lahiri** | Whole-sign (каждый знак = один Бхава от Лагны) |
+
+- Обе школы обязаны совпадать с эталонным референсным софтом **для выбранной школы**;
+  «средний» результат между школами — баг (реальный фидбэк пользователя).
+- Активная школа — `natal_chart_data["chart_system_key"]` (fallback — `agent_card`
+  `astro_system`).
+- **Транзиты уважают школу натала.** `calculate_current_transits(..., system=...)`
+  вызывается той же школой, что и натальная карта (см.
+  [forecasting-transits.md](forecasting-transits.md)); иначе прогноз накладывает
+  тропическую сетку на сидерическую карту.
+- **Регрессия:** `tests/test_evgenia_natal_regression.py` воспроизводит реальные
+  western- и vedic-карты пользователя из reverse-engineered данных рождения (геокодер
+  замокан, тест офлайн) и проверяет, что школы различаются ровно на айанамшу Lahiri,
+  а не «смешаны».
+
+## Что ещё можно добавить в код
+
 - **Синастрия** — аспекты между двумя картами (см. [compatibility.md](compatibility.md))
 - **Накшатры** — для ведической системы (позиция Луны в накшатре)
 - **Даши** — система прогнозов Джйотиш

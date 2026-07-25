@@ -98,16 +98,19 @@
 ## Что поддерживает код Mandala
 
 Текущее состояние в `src/mandala/astro/natal_chart.py`:
-- **Обе системы**: `western` (тропик, Placidus) и `vedic` (Lahiri через kerykeion)
+- **Обе системы, строго раздельно**: `western` (тропик + Placidus) и `vedic`
+  (сидерик + айанамша **Lahiri** + дома **whole-sign**, `houses_system_identifier="W"`).
+  Школы **не смешиваются** — детали и таблица в [natal-chart.md](natal-chart.md).
 - **Планеты**: 10 западных
 - **Аспекты**: через `AspectsFactory.single_chart_aspects()` (kerykeion v4+)
 - **Асцендент**: при известном времени рождения
+- **Транзиты**: `calculate_current_transits(..., system=...)` — считаются в **той же
+  школе**, что и натал (см. [forecasting-transits.md](forecasting-transits.md))
 
-**Что нужно добавить:**
+**Что ещё можно добавить:**
 - Накшатры для ведической системы
 - Рассчёт Раху/Кету отдельно
-- Систему домов Koch/Whole Sign как опцию для западной системы
-- Транзиты (текущие позиции планет)
+- Систему домов Koch как опцию для западной системы
 
 ---
 

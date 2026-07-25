@@ -4,7 +4,23 @@
 
 **С чего начать после клонирования репозитория:** [getting-started.md](getting-started.md) (установка, **`.env`**, миграции, запуск, прод-checklist). **Что дальше по продукту:** [roadmap.md](roadmap.md).
 
+## Как смотреть документацию (просмотрщик)
+
+Всю папку `docs/` можно открыть как сайт с оглавлением и поиском — одной командой:
+
+```bash
+bash scripts/docs-serve.sh          # http://127.0.0.1:8001 (mkdocs serve)
+bash scripts/docs-serve.sh build    # статическая сборка в ./site
+```
+
+Просмотрщик (**mkdocs + Material**) полностью изолирован от рантайма бота: зависимости —
+в `docs/requirements.txt`, они **не** входят в `pyproject.toml`/`uv.lock` и в прод-образ
+(`Containerfile` ставит только `--extra deploy`), а окружение вьюера (`.venv-docs`) не
+трогает `.venv` приложения. Конфиг и навигация — `mkdocs.yml` в корне репозитория.
+
 ## Оглавление
+
+### Платформа
 
 | Файл | Содержание |
 |------|------------|
@@ -16,10 +32,30 @@
 | [channels.md](channels.md) | Нормализованные события, адаптеры, `OutboundMessage` |
 | [billing.md](billing.md) | Абстракция биллинга, Telegram Stars, будущие провайдеры |
 | [quotas-and-plans.md](quotas-and-plans.md) | Планы, лимиты (в т.ч. 0 картинок), учёт usage |
-| [agent.md](agent.md) | Оркестрация (граф), роутинг моделей, RAG, память диалога |
-| [deployment-yandex-cloud.md](deployment-yandex-cloud.md) | Деплой в Yandex Cloud: ресурсы, сеть, БД, Docker, Terraform, обновления |
+| [agent.md](agent.md) | Оркестрация (граф), единый выбор LLM-модели вертикали, RAG, память |
+| [deployment-yandex-cloud.md](deployment-yandex-cloud.md) | Деплой в Yandex Cloud: ресурсы, сеть, БД, Docker, контракт PORT/EXPOSE/health |
 | [monitoring.md](monitoring.md) | Наблюдаемость: дашборд метрик YC Monitoring (Terraform), эмиссия метрик, логи |
 | [implementation-plan.md](implementation-plan.md) | Исторический поэтапный план с тикетами (контекст для команды и агентов) |
+
+### Астрология
+
+| Файл | Содержание |
+|------|------------|
+| [astrology/foundations.md](astrology/foundations.md) | Западная vs ведическая: зодиак, дома, айанамша |
+| [astrology/natal-chart.md](astrology/natal-chart.md) | Расчёт натальной карты; две школы, которые не смешиваются |
+| [astrology/forecasting-transits.md](astrology/forecasting-transits.md) | Прогнозы и транзиты (уважают школу натала) |
+| [astrology/compatibility.md](astrology/compatibility.md) | Совместимость / синастрия |
+| [astrology/navigator-ux.md](astrology/navigator-ux.md) | Бот-навигатор: короткие ответы, кликабельные термины, бургер-меню |
+| [astrology/sources.md](astrology/sources.md) | Источники и справочные материалы |
+
+### История, планы, исследования
+
+| Файл | Содержание |
+|------|------------|
+| [plan/README.md](plan/README.md) | Черновики планов |
+| [rfc/README.md](rfc/README.md) · [rfc/current-state.md](rfc/current-state.md) | RFC и снимок текущего состояния |
+| [tickets/full-commands-and-buttons.md](tickets/full-commands-and-buttons.md) | Полный перечень команд и кнопок |
+| [research/astro-power-users.md](research/astro-power-users.md) | Исследование: astro power users |
 
 ## Принципы
 

@@ -1,0 +1,76 @@
+# Просмотрщик документации Mandala.
+# Изолирован от рантайма бота: НЕ входит в прод-образ (Containerfile ставит
+# только `--extra deploy`) и не трогает .venv приложения. Зависимости — в
+# docs/requirements.txt; запуск одной командой — `bash scripts/docs-serve.sh`.
+site_name: Документация Mandala
+site_description: Бэкенд Mandala — архитектура, астрология, деплой, агент
+docs_dir: docs
+use_directory_urls: false
+
+theme:
+  name: material
+  language: ru
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/weather-night
+        name: Тёмная тема
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/weather-sunny
+        name: Светлая тема
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - navigation.indexes
+    - toc.follow
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - tables
+  - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.highlight
+
+nav:
+  - Обзор: README.md
+  - Начало работы: getting-started.md
+  - Продукт:
+      - Продукт и сценарий: product.md
+      - Роадмап: roadmap.md
+      - Планы и лимиты: quotas-and-plans.md
+      - Биллинг: billing.md
+  - Архитектура:
+      - Слои и потоки: architecture.md
+      - Модель данных: data-model.md
+      - Каналы: channels.md
+      - Агент, модели, RAG, память: agent.md
+  - Астрология:
+      - "Основы: западная vs ведическая": astrology/foundations.md
+      - Натальная карта: astrology/natal-chart.md
+      - Прогнозы и транзиты: astrology/forecasting-transits.md
+      - Совместимость: astrology/compatibility.md
+      - Бот-навигатор (UX): astrology/navigator-ux.md
+      - Источники: astrology/sources.md
+  - Деплой:
+      - Yandex Cloud: deployment-yandex-cloud.md
+      - Наблюдаемость (метрики, логи): monitoring.md
+  - История и планы:
+      - План реализации: implementation-plan.md
+      - Черновики планов: plan/README.md
+      - RFC: rfc/README.md
+      - RFC — текущее состояние: rfc/current-state.md
+      - Команды и кнопки: tickets/full-commands-and-buttons.md
+      - Исследование — power users: research/astro-power-users.md

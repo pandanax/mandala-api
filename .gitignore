@@ -16,6 +16,10 @@ dist/
 .coverage
 htmlcov/
 
+# Просмотрщик документации (mkdocs): изолированное окружение и статическая сборка
+.venv-docs/
+/site/
+
 # Terraform / деплой (тикет 23)
 *.tfstate
 *.tfstate.*
