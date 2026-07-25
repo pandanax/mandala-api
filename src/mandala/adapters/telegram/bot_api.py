@@ -121,6 +121,14 @@ class TelegramBotApiClient:
         msg = "telegram: исчерпаны ретраи"
         raise TelegramApiError(msg)
 
+    def get_me(self) -> dict[str, Any]:
+        """``getMe`` — данные бота (в т.ч. ``username`` для deep-link ссылок)."""
+        raw = self.call("getMe")
+        if not isinstance(raw, dict):
+            msg = "telegram getMe: ответ не объект"
+            raise TelegramApiError(msg)
+        return raw
+
     def get_updates(self, *, offset: int | None = None, timeout: int = 30) -> list[dict[str, Any]]:
         params: dict[str, Any] = {"timeout": timeout}
         if offset is not None:

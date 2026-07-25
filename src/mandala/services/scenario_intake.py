@@ -19,6 +19,7 @@ from sqlalchemy.engine import Connection
 from mandala.domain.contracts import InboundEvent, OutboundMessage
 from mandala.repositories.messages import MessageRepository
 from mandala.repositories.profiles import ClientProfileDTO, ProfileRepository
+from mandala.services.profile_view import build_profile_message
 from mandala.services.text_reply import MSG_NEED_TEXT
 from mandala.verticals.client_knowledge import AGENT_CARD_ASTRO_SYSTEM, AGENT_CARD_NATAL_CHART_DATA
 from mandala.verticals.intake_config import IntakeStep, intake_steps_for_vertical
@@ -40,12 +41,14 @@ _HARD_RESET_COMMANDS = frozenset({"/reset"})
 _INFO_COMMANDS = frozenset({"/help", "/about", "/info"})
 _PROMO_COMMANDS = frozenset({"/promo"})
 _TOPUP_COMMANDS = frozenset({"/topup"})
+_PROFILE_COMMANDS = frozenset({"/profile"})
 _ALL_COMMANDS = (
     _SOFT_RESTART_COMMANDS
     | _HARD_RESET_COMMANDS
     | _INFO_COMMANDS
     | _PROMO_COMMANDS
     | _TOPUP_COMMANDS
+    | _PROFILE_COMMANDS
 )
 
 
@@ -285,10 +288,12 @@ def _vertical_greeting(vertical_id: str) -> str:
 
 
 _COMMANDS_HELP = (
-    "Команды:\n"
+    "Меню бота (кнопка «/» или ☰ рядом с полем ввода):\n"
+    "• /profile — ваш профиль;\n"
     "• /start — перезапустить анкету (история диалога сохраняется);\n"
     "• /reset — полное обнуление: удаляет анкету и всю историю сообщений;\n"
-    "• /help — это сообщение."
+    "• /help — это сообщение.\n"
+    "Кнопки под ответами — это навигация: углубиться в тему или вернуться назад."
 )
 
 # Картинка для /help. Текст ниже — в markdown (**жирный**), который delivery-слой
@@ -297,13 +302,14 @@ _HELP_PHOTO_URL = "https://upload.wikimedia.org/wikipedia/commons/d/d1/Zodiac_wo
 _ASTROLOGY_HELP_TEXT = (
     "🌟 **Mandala** — личный астрологический ассистент.\n\n"
     "Я рассчитаю вашу натальную карту и помогу с прогнозами, разбором планет "
-    "и темами жизни.\n\n"
+    "и темами жизни. Я веду вас как навигатор: под каждым ответом — кнопки, "
+    "чтобы углубиться в тему или вернуться назад. Термины в тексте кликабельны — "
+    "нажмите, и я объясню.\n\n"
     "**Меню** (кнопки внизу экрана):\n"
     "🔮 Натальная карта — разбор вашей карты\n"
-    "📊 Прогноз — на сегодня, неделю, месяц или год\n"
-    "👤 Профиль — ваши данные\n"
-    "🔄 Начать заново — повторная анкета\n\n"
-    "**Команды** (наберите / чтобы увидеть список):\n"
+    "📊 Прогноз — на сегодня, неделю, месяц или год\n\n"
+    "**Команды** (кнопка «/» или ☰ рядом с полем ввода):\n"
+    "/profile — ваш профиль\n"
     "/start — заново (история сохраняется)\n"
     "/reset — полный сброс профиля\n"
     "/promo — промо-код\n"
@@ -383,6 +389,13 @@ def _handle_command(
     # /help для astrology — отдельный ответ с картинкой и описанием меню/команд.
     if command == "/help" and event.vertical_id.strip() == "astrology":
         return _astrology_help_message()
+
+    # /profile — показать профиль (бургер-меню; основной поток кнопок — навигация).
+    if command in _PROFILE_COMMANDS:
+        profiles_repo = ProfileRepository(conn)
+        fresh = profiles_repo.get_by_user_id(user_id)
+        ac = dict(fresh.agent_card) if fresh else {}
+        return [build_profile_message(event.vertical_id, ac)]
 
     if command in _PROMO_COMMANDS:
         raw_text = (event.text or "").strip()

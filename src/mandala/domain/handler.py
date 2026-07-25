@@ -14,6 +14,8 @@ from mandala.rag.protocol import KbSearchPort
 from mandala.repositories import ProfileRepository
 from mandala.services.image_reply import handle_inbound_image_generation
 from mandala.services.intent_router import post_intake_intent
+from mandala.services.nav_protocol import resolve_nav_action
+from mandala.services.profile_view import build_profile_message
 from mandala.services.scenario_intake import handle_intake_before_llm
 from mandala.services.text_reply import handle_inbound_text_llm
 from mandala.services.user_identity import UserIdentityService
@@ -88,6 +90,37 @@ def handle_inbound(
     if profile is None:
         msg = "client_profiles: ensure_row не создал строку"
         raise RuntimeError(msg)
+
+    # Навигация: клик по динамической кнопке (mdl:nav:*) или deep-link кликабельного
+    # термина (/start mdlnav_*) → достаём сохранённый запрос и идём прямым текстовым
+    # ходом LLM (минуя анкету/quick-actions). Проверяем до анкеты, т.к. deep-link
+    # приходит как «/start …» и иначе был бы съеден мягким рестартом анкеты.
+    nav_query = resolve_nav_action(event.text, profile.agent_card.get("nav_map"))
+    if nav_query is not None:
+        logger.info(
+            "funnel inbound %s",
+            op_format(
+                vertical_id=event.vertical_id,
+                user_id=uid,
+                channel=event.channel,
+                stage="route",
+                intent="nav",
+            ),
+        )
+        raw_summary_nav = profile.scenario_state.get("dialog_summary")
+        dialog_summary_nav = raw_summary_nav.strip() if isinstance(raw_summary_nav, str) else None
+        nav_event = event.model_copy(update={"text": nav_query})
+        text_result = handle_inbound_text_llm(
+            conn,
+            nav_event,
+            uid,
+            llm_client=llm_client,
+            kb_search=kb_search,
+            dialog_summary=dialog_summary_nav,
+            agent_card=profile.agent_card,
+        )
+        text_result = _with_sphere_followup(text_result, event.vertical_id)
+        return _with_astrology_keyboard(text_result, event.vertical_id)
 
     intake_out = handle_intake_before_llm(conn, event, uid, profile)
     if intake_out is not None:
@@ -241,52 +274,8 @@ def _handle_show_profile(
     vertical_id: str,
     agent_card: dict[str, Any],
 ) -> list[OutboundMessage]:
-    """Показать пользователю всё, что мы знаем о нём."""
-    lines: list[str] = ["👤 **Ваш профиль**", ""]
-
-    field_labels = [
-        ("full_name", "Имя"),
-        ("birth_date", "Дата рождения"),
-        ("birth_place", "Место рождения"),
-        ("birth_time", "Время рождения"),
-    ]
-    for key, label in field_labels:
-        val = agent_card.get(key)
-        if isinstance(val, str) and val.strip():
-            lines.append(f"**{label}:** {val.strip()}")
-
-    system = agent_card.get(AGENT_CARD_ASTRO_SYSTEM)
-    if isinstance(system, str) and system.strip():
-        label = "🕉️ Ведическая (Lahiri)" if system == "vedic" else "🌟 Западная (тропическая)"
-        lines.append(f"**Система:** {label}")
-
-    natal_data = agent_card.get(AGENT_CARD_NATAL_CHART_DATA)
-    if isinstance(natal_data, dict) and natal_data:
-        lines.append("")
-        lines.append("🪐 **Рассчитанная натальная карта:**")
-        sun = natal_data.get("sun_sign", "?")
-        moon = natal_data.get("moon_sign", "?")
-        asc = natal_data.get("ascendant")
-        lines.append(f"  ☀️ Солнце: {sun}")
-        lines.append(f"  🌙 Луна: {moon}")
-        if asc:
-            lines.append(f"  ⬆️ Асцендент: {asc}")
-        calc_at = natal_data.get("calculated_at", "")
-        if calc_at:
-            lines.append(f"  📐 Рассчитано: {calc_at[:10]}")
-    elif agent_card.get("natal_chart_text"):
-        lines.append("")
-        lines.append("📋 Натальная карта сохранена (текстовая версия).")
-
-    promo = agent_card.get("activated_promo")
-    if isinstance(promo, str) and promo.strip():
-        lines.append("")
-        lines.append(f"✅ Промо-код активирован: `{promo}` — подписка без ограничений")
-
-    lines.append("")
-    lines.append("Для сброса данных нажмите «🔄 Начать заново» или введите /reset.")
-
-    return [OutboundMessage(text="\n".join(lines), reply_keyboard=ASTROLOGY_REPLY_KEYBOARD)]
+    """Показать пользователю всё, что мы знаем о нём (callback ``__show_profile__``)."""
+    return [build_profile_message(vertical_id, agent_card)]
 
 
 def _handle_system_switch(

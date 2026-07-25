@@ -19,7 +19,10 @@ logger = logging.getLogger(__name__)
 _DEFAULT_BASE = "https://api.telegram.org"
 
 # (command, description) — команда без ведущего «/».
+# Бургер-меню (☰): профиль, рестарт, help, промо, тарифы. Основной поток inline-кнопок
+# под ответами — это навигация по контенту, а НЕ сервисные действия (см. docs/agent.md).
 BOT_COMMANDS: list[tuple[str, str]] = [
+    ("profile", "Мой профиль"),
     ("start", "Начать заново"),
     ("reset", "Полный сброс профиля"),
     ("help", "Помощь"),

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
@@ -16,6 +18,33 @@ from mandala.observability import op_format
 
 logger = logging.getLogger(__name__)
 
+# Кэш username бота по токену: getMe вызываем один раз, а не на каждое сообщение.
+_bot_username_cache: dict[str, str] = {}
+
+
+def _resolve_bot_username(api: TelegramBotApiClient) -> str | None:
+    """Username бота для deep-link ссылок (термины).
+
+    Приоритет: env ``TELEGRAM_BOT_USERNAME`` (без сетевого вызова) → ``getMe`` с кэшем.
+    Любая ошибка → ``None`` (термины отрендерятся обычным текстом — безопасная деградация).
+    """
+    env = os.environ.get("TELEGRAM_BOT_USERNAME")
+    if env and env.strip():
+        return env.strip().lstrip("@")
+    token = str(getattr(api, "_token", "") or "")
+    if token in _bot_username_cache:
+        return _bot_username_cache[token] or None
+    resolved = ""
+    try:
+        me = api.get_me()
+        username = me.get("username")
+        if isinstance(username, str) and username.strip():
+            resolved = username.strip().lstrip("@")
+    except Exception:  # noqa: BLE001 — доставка не должна падать из-за getMe
+        logger.warning("getMe failed while resolving bot username", exc_info=True)
+    _bot_username_cache[token] = resolved
+    return resolved or None
+
 
 def _telegram_entity_parse_failed(err: TelegramApiError) -> bool:
     d = err.description.lower()
@@ -28,8 +57,12 @@ def _send_message_html_or_plain(
     chat_id: int,
     text: str,
     reply_markup: dict[str, Any] | None,
+    term_links: Sequence[dict[str, str]] | None = None,
+    bot_username: str | None = None,
 ) -> None:
-    formatted = format_llm_text_for_telegram_html(text)
+    formatted = format_llm_text_for_telegram_html(
+        text, term_links=term_links, bot_username=bot_username
+    )
     try:
         api.send_message(
             chat_id=chat_id,
@@ -56,11 +89,15 @@ def _send_photo_caption_html_or_plain(
     photo: str,
     caption: str | None,
     reply_markup: dict[str, Any] | None,
+    term_links: Sequence[dict[str, str]] | None = None,
+    bot_username: str | None = None,
 ) -> None:
     if caption is None:
         api.send_photo(chat_id=chat_id, photo=photo, reply_markup=reply_markup)
         return
-    formatted = format_llm_text_for_telegram_html(caption)
+    formatted = format_llm_text_for_telegram_html(
+        caption, term_links=term_links, bot_username=bot_username
+    )
     try:
         api.send_photo(
             chat_id=chat_id,
@@ -136,6 +173,11 @@ def deliver_outbound_messages(
                 n_photo=n_photo,
             ),
         )
+    # Username бота нужен только если есть кликабельные термины — резолвим лениво один раз.
+    bot_username: str | None = None
+    if any(m.term_links for m in messages):
+        bot_username = _resolve_bot_username(api)
+
     for msg in messages:
         markup: dict[str, Any] | None = None
         if msg.reply_keyboard:
@@ -150,6 +192,8 @@ def deliver_outbound_messages(
                 photo=msg.photo,
                 caption=msg.text,
                 reply_markup=markup,
+                term_links=msg.term_links,
+                bot_username=bot_username,
             )
         elif msg.text is not None:
             parts = split_text_for_telegram(msg.text)
@@ -157,6 +201,11 @@ def deliver_outbound_messages(
                 # Клавиатуру (reply_markup) крепим только к последнему куску.
                 part_markup = markup if i == len(parts) - 1 else None
                 _send_message_html_or_plain(
-                    api, chat_id=chat_id, text=part, reply_markup=part_markup
+                    api,
+                    chat_id=chat_id,
+                    text=part,
+                    reply_markup=part_markup,
+                    term_links=msg.term_links,
+                    bot_username=bot_username,
                 )
         # TODO(тикет 12+): ``requires_payment``, ``defer`` — сценарии оплаты и отложенных ответов.

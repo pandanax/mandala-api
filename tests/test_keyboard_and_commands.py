@@ -88,3 +88,30 @@ def test_register_bot_commands_noop_without_env(monkeypatch) -> None:  # type: i
     from mandala.adapters.telegram.bot_commands import register_bot_commands_if_configured
 
     assert asyncio.run(register_bot_commands_if_configured()) is False
+
+
+def test_burger_menu_contains_profile_reset_help() -> None:
+    # Профиль/рестарт/help — в бургер-меню (setMyCommands), не в основном потоке кнопок.
+    from mandala.adapters.telegram.bot_commands import BOT_COMMANDS
+
+    names = [cmd for cmd, _ in BOT_COMMANDS]
+    assert "profile" in names
+    assert "reset" in names
+    assert "help" in names
+
+
+def test_build_profile_message_renders_fields_and_keyboard() -> None:
+    from mandala.services.profile_view import build_profile_message
+
+    msg = build_profile_message(
+        "astrology",
+        {"full_name": "Аня", "birth_date": "1990-01-01", "astro_system": "western"},
+    )
+    assert msg.text is not None
+    assert "Ваш профиль" in msg.text
+    assert "Аня" in msg.text
+    assert "1990-01-01" in msg.text
+    # Профиль показывается с постоянной клавиатурой навигации по контенту.
+    assert msg.reply_keyboard == ASTROLOGY_REPLY_KEYBOARD
+    # Сброс — через команду меню, а не кнопку основного потока.
+    assert "/reset" in msg.text

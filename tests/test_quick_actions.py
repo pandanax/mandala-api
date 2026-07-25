@@ -18,11 +18,12 @@ def test_expand_astrology_natal() -> None:
     assert out != "mdl:natal"
 
 
-def test_reply_keyboard_is_four_buttons_two_rows() -> None:
-    assert len(ASTROLOGY_REPLY_KEYBOARD) == 2
-    assert all(len(row) == 2 for row in ASTROLOGY_REPLY_KEYBOARD)
+def test_reply_keyboard_is_content_navigation_only() -> None:
+    # Основной поток — навигация по контенту; профиль/сброс/help ушли в бургер-меню.
     flat = [btn for row in ASTROLOGY_REPLY_KEYBOARD for btn in row]
-    assert flat == ["🔮 Натальная карта", "📊 Прогноз", "👤 Профиль", "🔄 Начать заново"]
+    assert flat == ["🔮 Натальная карта", "📊 Прогноз"]
+    assert "👤 Профиль" not in flat
+    assert "🔄 Начать заново" not in flat
 
 
 def test_forecast_button_expands_to_menu_code() -> None:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import html
 import re
+from collections.abc import Sequence
 
 # Telegram sendMessage/caption лимиты (официально 4096/1024).
 # Берём с запасом на HTML-теги, которые добавляются при форматировании.
@@ -15,6 +16,47 @@ TELEGRAM_MAX_TEXT_CHARS = 3900
 
 # Блоки ```…```: опциональная «языковая» строка после открывающих ```
 _FENCE = re.compile(r"```(?:[^\n`]*\n)?(.*?)```", re.DOTALL)
+
+# База deep-link для кликабельных терминов (t.me/<bot>?start=<payload>).
+_TME_BASE = "https://t.me"
+# Служебный разделитель плейсхолдера ссылки (не встречается в обычном тексте и не
+# трогается ни markdown-регэкспами, ни html.escape).
+_LINK_SENTINEL = "\x02"
+
+
+def _term_deeplink_html(bot_username: str, payload: str, label: str) -> str:
+    url = f"{_TME_BASE}/{bot_username}?start={payload}"
+    return f'<a href="{html.escape(url, quote=True)}">{html.escape(label)}</a>'
+
+
+def _inject_term_placeholders(
+    text: str,
+    term_links: Sequence[dict[str, str]],
+    bot_username: str,
+    out_links: list[str],
+) -> str:
+    """Заменить каждый термин в тексте на защищённый плейсхолдер ``\\x02i\\x02``.
+
+    Готовый ``<a>``-HTML копится в ``out_links`` и подставляется обратно уже после
+    markdown→HTML конвертации. Термин, которого нет в тексте, пропускается (деградация).
+    """
+    for tl in term_links:
+        term = (tl.get("term") or "").strip()
+        payload = (tl.get("payload") or "").strip()
+        if not term or not payload:
+            continue
+        idx = text.find(term)
+        if idx == -1:
+            low = text.lower()
+            j = low.find(term.lower())
+            if j == -1:
+                continue
+            idx = j
+            term = text[idx : idx + len(term)]  # сохранить исходный регистр подстроки
+        out_links.append(_term_deeplink_html(bot_username, payload, term))
+        placeholder = f"{_LINK_SENTINEL}{len(out_links) - 1}{_LINK_SENTINEL}"
+        text = text[:idx] + placeholder + text[idx + len(term) :]
+    return text
 
 
 def split_text_for_telegram(text: str, max_chars: int = TELEGRAM_MAX_TEXT_CHARS) -> list[str]:
@@ -71,14 +113,26 @@ def split_text_for_telegram(text: str, max_chars: int = TELEGRAM_MAX_TEXT_CHARS)
     return [c for c in chunks if c.strip()]
 
 
-def format_llm_text_for_telegram_html(text: str) -> str:
+def format_llm_text_for_telegram_html(
+    text: str,
+    *,
+    term_links: Sequence[dict[str, str]] | None = None,
+    bot_username: str | None = None,
+) -> str:
     """Грубое приближение markdown к HTML по правилам Bot API.
 
     Не полноценный парсер: покрывает типичный вывод LLM (**жирный**, списки, заголовки,
     `` `inline` `` и блоки кода). При сомнении текст экранируется.
+
+    ``term_links`` + ``bot_username`` (оба заданы) → термины в тексте становятся
+    кликабельными inline deep-link ссылками ``t.me/<bot>?start=<payload>``. Если
+    ``bot_username`` не определён — термины остаются обычным текстом (безопасная деградация).
     """
     if not text:
         return text
+    link_html: list[str] = []
+    if term_links and bot_username:
+        text = _inject_term_placeholders(text, term_links, bot_username, link_html)
     chunks: list[str] = []
     pos = 0
     for m in _FENCE.finditer(text):
@@ -89,7 +143,10 @@ def format_llm_text_for_telegram_html(text: str) -> str:
         pos = m.end()
     if pos < len(text):
         chunks.append(_md_chunk_to_html(text[pos:]))
-    return "".join(chunks)
+    body = "".join(chunks)
+    for i, fragment in enumerate(link_html):
+        body = body.replace(f"{_LINK_SENTINEL}{i}{_LINK_SENTINEL}", fragment)
+    return body
 
 
 def _md_chunk_to_html(s: str) -> str:

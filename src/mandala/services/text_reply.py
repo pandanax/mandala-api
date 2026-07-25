@@ -43,6 +43,7 @@ from mandala.rag.protocol import KbSearchPort
 from mandala.repositories.messages import MessageDTO, MessageRepository
 from mandala.repositories.profiles import ProfileRepository
 from mandala.services.llm_time_context import build_llm_time_context_block
+from mandala.services.nav_protocol import assign_ids, split_llm_nav_suffix
 from mandala.services.quota import RESOURCE_TEXT_REPLY, QuotaService
 from mandala.verticals import get_vertical_system_prompt
 from mandala.verticals.client_knowledge import (
@@ -302,12 +303,15 @@ def handle_inbound_text_llm(
         ),
     )
 
-    cleaned_reply, agent_patch = (
-        split_llm_agent_card_suffix(reply)
-        if event.vertical_id.strip() == "astrology"
-        else (reply, {})
-    )
-    # Защита от пустого ответа: если после отделения agent-card suffix ничего не осталось,
+    # Астрология: отделяем служебные хвосты. Сначала блок навигации (он последний),
+    # затем agent-card блок — так каждый парсер видит только свой блок.
+    nav_spec = None
+    if event.vertical_id.strip() == "astrology":
+        reply_wo_nav, nav_spec = split_llm_nav_suffix(reply)
+        cleaned_reply, agent_patch = split_llm_agent_card_suffix(reply_wo_nav)
+    else:
+        cleaned_reply, agent_patch = reply, {}
+    # Защита от пустого ответа: если после отделения хвостов ничего не осталось,
     # откатываемся на исходный reply, а в крайнем случае — на сообщение о недоступности.
     if not cleaned_reply.strip():
         cleaned_reply = reply.strip() or MSG_LLM_UNAVAILABLE
@@ -339,5 +343,19 @@ def handle_inbound_text_llm(
                 reason=consume_result.reason,
             ),
         )
+
+    # Навигация: динамические кнопки «следующий шаг» + кликабельные термины из ответа LLM.
+    # nav_map (id → полный запрос) сохраняем в agent_card — при клике его достанет
+    # resolve_nav_action (callback ≤64 байта / start-payload физически не вмещают текст).
+    if nav_spec is not None:
+        render = assign_ids(nav_spec)
+        ProfileRepository(conn).merge_agent_card(user_id, {"nav_map": render.nav_map})
+        return [
+            OutboundMessage(
+                text=cleaned_reply,
+                buttons=render.buttons or None,
+                term_links=render.term_links or None,
+            )
+        ]
 
     return [OutboundMessage(text=cleaned_reply)]
