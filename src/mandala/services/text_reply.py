@@ -25,6 +25,10 @@ from uuid import UUID
 
 from sqlalchemy.engine import Connection
 
+from mandala.astro.destiny_matrix import (
+    compute_destiny_matrix,
+    destiny_matrix_to_system_text,
+)
 from mandala.astro.natal_chart import (
     calculate_current_transits,
     current_transits_to_system_text,
@@ -237,6 +241,16 @@ def handle_inbound_text_llm(
             system_prompt = f"{system_prompt}\n\n{current_transits_to_system_text(transits)}"
         except Exception:
             logger.warning("failed to compute current transits for system prompt", exc_info=True)
+        # Карта судьбы (Матрица Судьбы) — отдельная от астрологии система: чистая
+        # нумерология даты рождения (без эфемерид/времени/места). Считаем на лету, если
+        # есть дата, и подмешиваем как ДАННЫЕ — модель интерпретирует, но не считает.
+        birth_date_raw = card.get("birth_date")
+        if isinstance(birth_date_raw, str) and birth_date_raw.strip():
+            try:
+                dm = compute_destiny_matrix(birth_date_raw.strip())
+                system_prompt = f"{system_prompt}\n\n{destiny_matrix_to_system_text(dm)}"
+            except Exception:
+                logger.warning("failed to compute destiny matrix for system prompt", exc_info=True)
     if search_port is not None:
         rag_cfg = RagEnvSettings.from_env()
         try:
