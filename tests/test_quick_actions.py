@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from mandala.verticals.quick_actions import (
-    ASTROLOGY_REPLY_KEYBOARD,
     FORECAST_MENU_CODE,
     expand_inbound_quick_action,
     is_forecast_menu,
@@ -18,12 +17,11 @@ def test_expand_astrology_natal() -> None:
     assert out != "mdl:natal"
 
 
-def test_reply_keyboard_is_content_navigation_only() -> None:
-    # Основной поток — навигация по контенту; профиль/сброс/help ушли в бургер-меню.
-    flat = [btn for row in ASTROLOGY_REPLY_KEYBOARD for btn in row]
-    assert flat == ["🔮 Натальная карта", "📊 Прогноз"]
-    assert "👤 Профиль" not in flat
-    assert "🔄 Начать заново" not in flat
+def test_lingering_reply_keyboard_taps_still_resolve() -> None:
+    # Постоянной нижней клавиатуры больше нет, но её тексты у существующих
+    # пользователей ещё «залипли» — тап по ним должен резолвиться в код действия.
+    assert expand_inbound_quick_action("astrology", "🔮 Натальная карта") is not None
+    assert expand_inbound_quick_action("astrology", "📊 Прогноз") == FORECAST_MENU_CODE
 
 
 def test_forecast_button_expands_to_menu_code() -> None:

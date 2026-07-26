@@ -1,14 +1,12 @@
-"""Подменю прогноза, постоянная клавиатура, /help с картинкой, setMyCommands, сплиттер."""
+"""Подменю прогноза, инлайн-навигация, /help с картинкой, setMyCommands, сплиттер."""
 
 from __future__ import annotations
 
 import asyncio
 
 from mandala.adapters.telegram.text_format import TELEGRAM_MAX_TEXT_CHARS, split_text_for_telegram
-from mandala.domain.contracts import OutboundMessage
-from mandala.domain.handler import _handle_forecast_menu, _with_astrology_keyboard
+from mandala.domain.handler import _handle_forecast_menu
 from mandala.services.scenario_intake import _astrology_help_message
-from mandala.verticals.quick_actions import ASTROLOGY_REPLY_KEYBOARD
 
 
 def test_forecast_menu_returns_four_period_inline_buttons() -> None:
@@ -18,32 +16,11 @@ def test_forecast_menu_returns_four_period_inline_buttons() -> None:
     assert msg.buttons is not None
     codes = [cell["callback_data"] for row in msg.buttons for cell in row]
     assert codes == ["mdl:fc_today", "mdl:fc_week", "mdl:fc_month", "mdl:fc_year"]
-    # Подменю показывается без вызова LLM и сохраняет нижнюю клавиатуру.
-    assert msg.reply_keyboard == ASTROLOGY_REPLY_KEYBOARD
+    # Постоянной нижней клавиатуры больше нет — навигация только инлайн-кнопками.
+    assert msg.reply_keyboard is None
 
 
-def test_with_astrology_keyboard_adds_to_last_message() -> None:
-    result = [OutboundMessage(text="a"), OutboundMessage(text="b")]
-    out = _with_astrology_keyboard(result, "astrology")
-    assert out[-1].reply_keyboard == ASTROLOGY_REPLY_KEYBOARD
-    # Не перетираем клавиатуру у уже сконфигурированного сообщения.
-    assert out[0].reply_keyboard is None
-
-
-def test_with_astrology_keyboard_preserves_existing_keyboard() -> None:
-    custom = [["x"]]
-    result = [OutboundMessage(text="a", reply_keyboard=custom)]
-    out = _with_astrology_keyboard(result, "astrology")
-    assert out[-1].reply_keyboard == custom
-
-
-def test_with_astrology_keyboard_skips_other_verticals_and_empty() -> None:
-    result = [OutboundMessage(text="a")]
-    assert _with_astrology_keyboard(result, "therapy")[0].reply_keyboard is None
-    assert _with_astrology_keyboard([], "astrology") == []
-
-
-def test_help_message_has_photo_and_bold_menu() -> None:
+def test_help_message_has_photo_bold_menu_and_inline_nav() -> None:
     out = _astrology_help_message()
     assert len(out) == 1
     msg = out[0]
@@ -51,9 +28,11 @@ def test_help_message_has_photo_and_bold_menu() -> None:
     assert msg.text is not None
     # Жирный оформлен markdown-ом **…**, который delivery-слой превратит в <b> HTML.
     assert "**Mandala**" in msg.text
-    assert "**Меню**" in msg.text
+    assert "**Навигация**" in msg.text
     assert "**Команды**" in msg.text
-    assert msg.reply_keyboard == ASTROLOGY_REPLY_KEYBOARD
+    # Постоянной нижней клавиатуры нет; вместо неё — инлайн-навигация под сообщением.
+    assert msg.reply_keyboard is None
+    assert msg.buttons is not None and len(msg.buttons) > 0
 
 
 def test_split_text_short_returns_single_chunk() -> None:
@@ -100,7 +79,7 @@ def test_burger_menu_contains_profile_reset_help() -> None:
     assert "help" in names
 
 
-def test_build_profile_message_renders_fields_and_keyboard() -> None:
+def test_build_profile_message_renders_fields_without_reply_keyboard() -> None:
     from mandala.services.profile_view import build_profile_message
 
     msg = build_profile_message(
@@ -111,7 +90,7 @@ def test_build_profile_message_renders_fields_and_keyboard() -> None:
     assert "Ваш профиль" in msg.text
     assert "Аня" in msg.text
     assert "1990-01-01" in msg.text
-    # Профиль показывается с постоянной клавиатурой навигации по контенту.
-    assert msg.reply_keyboard == ASTROLOGY_REPLY_KEYBOARD
+    # Постоянной нижней клавиатуры больше нет; инлайн-навигацию крепит ensure_nav.
+    assert msg.reply_keyboard is None
     # Сброс — через команду меню, а не кнопку основного потока.
     assert "/reset" in msg.text

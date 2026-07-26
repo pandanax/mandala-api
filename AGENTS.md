@@ -51,8 +51,18 @@ LLM-generated navigation. The model appends a machine block at the very end of i
   env `TELEGRAM_BOT_USERNAME` or cached `getMe` in `outbound_send.py`. No username → terms
   stay plain text (safe degrade).
 - Profile/reset/help live in the burger menu (`setMyCommands` in `bot_commands.py`,
-  `/profile` handled in `scenario_intake.py`); the persistent reply keyboard is content-nav
-  only. The channel-agnostic `OutboundMessage.term_links` field carries `{term, payload}`.
+  `/profile` handled in `scenario_intake.py`). The channel-agnostic
+  `OutboundMessage.term_links` field carries `{term, payload}`.
+- **Inline-only navigation (no persistent reply keyboard).** Every bot answer ends with an
+  inline keyboard — the LLM picks it via the nav block above; when the model emits no valid
+  nav (bad JSON, non-astrology vertical), `services/nav_guarantee.py` (`ensure_nav`) attaches
+  a contextual fallback to the terminal (last non-invoice) message so a reply is **never**
+  left without navigation. Every domain return path that isn't a bare intake-wizard prompt
+  runs through `ensure_nav` (`domain/handler.py`, `services/scenario_intake.py`). The old
+  `ASTROLOGY_REPLY_KEYBOARD` is gone; `outbound_send.deliver_outbound_messages` attaches a
+  one-time `ReplyKeyboardRemove` to the first button-less message of a batch to clear the
+  lingering sticky keyboard for existing users (stateless, no extra bubble). Lingering
+  keyboard taps still resolve via `_KEYBOARD_TEXT_TO_CODE` in `quick_actions.py`.
 
 ### Local toolchain note
 

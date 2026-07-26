@@ -19,9 +19,10 @@ from mandala.verticals.client_knowledge import (
 def build_profile_message(vertical_id: str, agent_card: dict[str, Any]) -> OutboundMessage:
     """Собрать сообщение «Ваш профиль» из ``agent_card``.
 
-    Для astrology прикрепляем постоянную нижнюю клавиатуру (её ждёт пользователь в
-    каждом ответе). Профиль/сброс/help живут в бургер-меню, поэтому здесь только
-    показ данных и подсказка по сбросу.
+    Инлайн-навигация под сообщением добавляется вызывающим кодом
+    (:func:`mandala.services.nav_guarantee.ensure_nav`); постоянной нижней
+    reply-клавиатуры больше нет. Профиль/сброс/help живут в бургер-меню, поэтому
+    здесь только показ данных и подсказка по сбросу.
     """
     lines: list[str] = ["👤 **Ваш профиль**", ""]
 
@@ -64,10 +65,4 @@ def build_profile_message(vertical_id: str, agent_card: dict[str, Any]) -> Outbo
     lines.append("")
     lines.append("Полный сброс данных — команда /reset (в меню бота).")
 
-    reply_keyboard: list[list[str]] | None = None
-    if vertical_id.strip() == "astrology":
-        from mandala.verticals.quick_actions import ASTROLOGY_REPLY_KEYBOARD
-
-        reply_keyboard = ASTROLOGY_REPLY_KEYBOARD
-
-    return OutboundMessage(text="\n".join(lines), reply_keyboard=reply_keyboard)
+    return OutboundMessage(text="\n".join(lines))

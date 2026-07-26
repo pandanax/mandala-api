@@ -114,12 +114,15 @@ def test_deliver_outbound_text_and_photo() -> None:
     deliver_outbound_messages(api, chat_id=1, messages=msgs)
     assert api.send_message.call_count == 1
     assert api.send_photo.call_count == 1
+    # Постоянной reply-клавиатуры больше нет: первое сообщение без своих инлайн-кнопок
+    # одноразово несёт ReplyKeyboardRemove, чтобы снять «залипшую» клавиатуру.
     api.send_message.assert_called_with(
         chat_id=1,
         text="a",
-        reply_markup=None,
+        reply_markup={"remove_keyboard": True},
         parse_mode="HTML",
     )
+    # Снятие клавиатуры — один раз за ответ; на последующих сообщениях его уже нет.
     api.send_photo.assert_called_with(
         chat_id=1,
         photo="file_xyz",
@@ -165,12 +168,26 @@ def test_deliver_inline_keyboard_url_button() -> None:
     assert "callback_data" not in markup["inline_keyboard"][0][0]
 
 
-def test_deliver_no_buttons_sends_no_reply_markup() -> None:
+def test_deliver_buttonless_message_clears_sticky_keyboard_once() -> None:
+    # Без своих инлайн-кнопок первое сообщение снимает залипшую reply-клавиатуру.
     api = MagicMock()
     deliver_outbound_messages(api, chat_id=4, messages=[OutboundMessage(text="plain")])
     call = api.send_message.call_args
     assert call is not None
-    assert call.kwargs["reply_markup"] is None
+    assert call.kwargs["reply_markup"] == {"remove_keyboard": True}
+
+
+def test_deliver_inline_buttons_take_priority_over_keyboard_removal() -> None:
+    # Если у первого сообщения есть свои инлайн-кнопки — они и отправляются
+    # (снятие клавиатуры не вытесняет навигацию).
+    api = MagicMock()
+    deliver_outbound_messages(
+        api,
+        chat_id=8,
+        messages=[OutboundMessage(text="t", buttons=[[{"text": "OK", "callback_data": "ok"}]])],
+    )
+    markup = api.send_message.call_args.kwargs["reply_markup"]
+    assert markup == {"inline_keyboard": [[{"text": "OK", "callback_data": "ok"}]]}
 
 
 def test_deliver_term_links_render_inline_deeplink(monkeypatch: pytest.MonkeyPatch) -> None:

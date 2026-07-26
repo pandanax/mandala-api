@@ -139,16 +139,6 @@ def _buttons_to_reply_markup(buttons: list[list[dict[str, str]]]) -> dict[str, A
     return {"inline_keyboard": rows}
 
 
-def _reply_keyboard_to_markup(keyboard: list[list[str]]) -> dict[str, Any]:
-    rows = [[{"text": btn} for btn in row] for row in keyboard]
-    return {
-        "keyboard": rows,
-        "resize_keyboard": True,
-        "persistent": True,
-        "one_time_keyboard": False,
-    }
-
-
 def deliver_outbound_messages(
     api: TelegramBotApiClient,
     *,
@@ -178,6 +168,14 @@ def deliver_outbound_messages(
     if any(m.term_links for m in messages):
         bot_username = _resolve_bot_username(api)
 
+    # Постоянной нижней reply-клавиатуры больше нет — навигация только инлайн-кнопками
+    # под сообщениями. У существующих пользователей клавиатура «залипла»; гасим её
+    # одноразово, прикрепляя ReplyKeyboardRemove к первому сообщению без своей инлайн-
+    # разметки в этом ответе (без лишнего пузыря и без нового состояния). Новые
+    # пользователи начинают с /start (приветствие — сообщение без кнопок), поэтому
+    # клавиатура снимается сразу; у остальных — на ближайшем /start.
+    sticky_cleared = False
+
     for msg in messages:
         # Счёт на оплату (Telegram Stars): выставляем через sendInvoice. Счёт несёт свой
         # заголовок/описание/цену, поэтому это терминальное сообщение — text/photo на нём
@@ -195,10 +193,12 @@ def deliver_outbound_messages(
             continue
 
         markup: dict[str, Any] | None = None
-        if msg.reply_keyboard:
-            markup = _reply_keyboard_to_markup(msg.reply_keyboard)
-        elif msg.buttons:
+        if msg.buttons:
             markup = _buttons_to_reply_markup(msg.buttons)
+        elif not sticky_cleared and (msg.text is not None or msg.photo):
+            # Крепим только к реально отправляемому сообщению (иначе снятие «потеряется»).
+            markup = {"remove_keyboard": True}
+            sticky_cleared = True
 
         if msg.photo:
             _send_photo_caption_html_or_plain(

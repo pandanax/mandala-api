@@ -19,6 +19,7 @@ from sqlalchemy.engine import Connection
 from mandala.domain.contracts import InboundEvent, OutboundMessage
 from mandala.repositories.messages import MessageRepository
 from mandala.repositories.profiles import ClientProfileDTO, ProfileRepository
+from mandala.services.nav_guarantee import ensure_nav
 from mandala.services.profile_view import build_profile_message
 from mandala.services.telegram_stars import build_premium_invoice_message
 from mandala.services.text_reply import MSG_NEED_TEXT
@@ -159,24 +160,12 @@ def handle_intake_before_llm(
         msgs = [post_intake_completion_message(event.vertical_id, ac)]
         if geo_error:
             msgs.append(OutboundMessage(text=geo_error))
-        kb = _get_reply_keyboard(event.vertical_id)
-        if kb:
-            msgs.append(
-                OutboundMessage(text="Кнопки быстрого доступа закреплены ниже ↓", reply_keyboard=kb)
-            )
-        return msgs
+        # Инлайн-навигация гарантирована на терминальном сообщении (ошибка геокодинга
+        # тоже несёт кнопки — иначе пользователь застрянет без навигации).
+        return ensure_nav(msgs, event.vertical_id)
 
     nxt: IntakeStep = steps[next_idx]
     return [OutboundMessage(text=nxt.prompt)]
-
-
-def _get_reply_keyboard(vertical_id: str) -> list[list[str]] | None:
-    v = vertical_id.strip()
-    if v == "astrology":
-        from mandala.verticals.quick_actions import ASTROLOGY_REPLY_KEYBOARD
-
-        return ASTROLOGY_REPLY_KEYBOARD
-    return None
 
 
 def _handle_promo_command(
@@ -303,10 +292,10 @@ _HELP_PHOTO_URL = "https://upload.wikimedia.org/wikipedia/commons/d/d1/Zodiac_wo
 _ASTROLOGY_HELP_TEXT = (
     "🌟 **Mandala** — личный астрологический ассистент.\n\n"
     "Я рассчитаю вашу натальную карту и помогу с прогнозами, разбором планет "
-    "и темами жизни. Я веду вас как навигатор: под каждым ответом — кнопки, "
+    "и темами жизни. Я веду вас как навигатор: под каждым ответом — инлайн-кнопки, "
     "чтобы углубиться в тему или вернуться назад. Термины в тексте кликабельны — "
     "нажмите, и я объясню.\n\n"
-    "**Меню** (кнопки внизу экрана):\n"
+    "**Навигация** (кнопки прямо под сообщениями):\n"
     "🔮 Натальная карта — разбор вашей карты\n"
     "📊 Прогноз — на сегодня, неделю, месяц или год\n\n"
     "**Команды** (кнопка «/» или ☰ рядом с полем ввода):\n"
@@ -319,14 +308,14 @@ _ASTROLOGY_HELP_TEXT = (
 
 
 def _astrology_help_message() -> list[OutboundMessage]:
-    """Ответ на ``/help`` для astrology: картинка + описание меню и команд."""
-    return [
-        OutboundMessage(
-            text=_ASTROLOGY_HELP_TEXT,
-            photo=_HELP_PHOTO_URL,
-            reply_keyboard=_get_reply_keyboard("astrology"),
-        )
-    ]
+    """Ответ на ``/help`` для astrology: картинка + описание меню и команд.
+
+    Инлайн-навигация под сообщением добавляется через :func:`ensure_nav`.
+    """
+    return ensure_nav(
+        [OutboundMessage(text=_ASTROLOGY_HELP_TEXT, photo=_HELP_PHOTO_URL)],
+        "astrology",
+    )
 
 
 def _extract_command(user_text: str) -> str | None:
@@ -396,7 +385,7 @@ def _handle_command(
         profiles_repo = ProfileRepository(conn)
         fresh = profiles_repo.get_by_user_id(user_id)
         ac = dict(fresh.agent_card) if fresh else {}
-        return [build_profile_message(event.vertical_id, ac)]
+        return ensure_nav([build_profile_message(event.vertical_id, ac)], event.vertical_id)
 
     if command in _PROMO_COMMANDS:
         raw_text = (event.text or "").strip()
@@ -407,15 +396,18 @@ def _handle_command(
         )
 
     if command in _TOPUP_COMMANDS:
-        return [
-            OutboundMessage(
-                text=(
-                    "Premium снимает лимиты: больше текстовых ответов и генераций "
-                    "изображений в месяц. Оплата — Telegram Stars."
-                )
-            ),
-            build_premium_invoice_message(),
-        ]
+        return ensure_nav(
+            [
+                OutboundMessage(
+                    text=(
+                        "Premium снимает лимиты: больше текстовых ответов и генераций "
+                        "изображений в месяц. Оплата — Telegram Stars."
+                    )
+                ),
+                build_premium_invoice_message(),
+            ],
+            event.vertical_id,
+        )
 
     if command in _HARD_RESET_COMMANDS:
         profiles = ProfileRepository(conn)
@@ -455,7 +447,7 @@ def _handle_command(
             f"{greeting}\n\nАнкета уже заполнена. Выберите действие кнопкой "
             "или напишите запрос текстом."
         ).rstrip()
-        return [OutboundMessage(text=body, buttons=follow.buttons)]
+        return ensure_nav([OutboundMessage(text=body, buttons=follow.buttons)], event.vertical_id)
     raw_idx = state.get(KEY_INTAKE_STEP_INDEX, 0)
     try:
         idx = int(raw_idx)

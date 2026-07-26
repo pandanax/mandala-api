@@ -14,6 +14,7 @@ from mandala.rag.protocol import KbSearchPort
 from mandala.repositories import ProfileRepository
 from mandala.services.image_reply import handle_inbound_image_generation
 from mandala.services.intent_router import post_intake_intent
+from mandala.services.nav_guarantee import ensure_nav
 from mandala.services.nav_protocol import resolve_nav_action
 from mandala.services.profile_view import build_profile_message
 from mandala.services.scenario_intake import handle_intake_before_llm
@@ -22,7 +23,6 @@ from mandala.services.text_reply import handle_inbound_text_llm
 from mandala.services.user_identity import UserIdentityService
 from mandala.verticals.client_knowledge import AGENT_CARD_ASTRO_SYSTEM, AGENT_CARD_NATAL_CHART_DATA
 from mandala.verticals.quick_actions import (
-    ASTROLOGY_REPLY_KEYBOARD,
     expand_inbound_quick_action,
     is_forecast_menu,
     is_forecast_request,
@@ -122,7 +122,7 @@ def handle_inbound(
             agent_card=profile.agent_card,
         )
         text_result = _with_sphere_followup(text_result, event.vertical_id)
-        return _with_astrology_keyboard(text_result, event.vertical_id)
+        return ensure_nav(text_result, event.vertical_id)
 
     intake_out = handle_intake_before_llm(conn, event, uid, profile)
     if intake_out is not None:
@@ -149,11 +149,15 @@ def handle_inbound(
     if expanded is not None and expanded != event.text:
         switched, new_system = is_system_switch(expanded)
         if switched:
-            return _handle_system_switch(
-                conn, uid, event.vertical_id, new_system, profile.agent_card
+            return ensure_nav(
+                _handle_system_switch(conn, uid, event.vertical_id, new_system, profile.agent_card),
+                event.vertical_id,
             )
         if is_show_profile(expanded):
-            return _handle_show_profile(uid, event.vertical_id, profile.agent_card)
+            return ensure_nav(
+                _handle_show_profile(uid, event.vertical_id, profile.agent_card),
+                event.vertical_id,
+            )
         if is_premium_topup(expanded):
             logger.info(
                 "funnel inbound %s",
@@ -199,7 +203,7 @@ def handle_inbound(
         image_result = handle_inbound_image_generation(
             conn, event_for_pipeline, uid, image_client=image_client
         )
-        return _with_astrology_keyboard(image_result, event.vertical_id)
+        return ensure_nav(image_result, event.vertical_id)
     logger.info(
         "funnel inbound %s",
         op_format(
@@ -222,7 +226,7 @@ def handle_inbound(
         agent_card=profile.agent_card,
     )
     text_result = _with_sphere_followup(text_result, event.vertical_id)
-    return _with_astrology_keyboard(text_result, event.vertical_id)
+    return ensure_nav(text_result, event.vertical_id)
 
 
 def _with_sphere_followup(
@@ -240,23 +244,6 @@ def _with_sphere_followup(
     # Добавляем только если нет уже заданных inline-кнопок и есть текст
     if last.buttons is None and last.text:
         result[-1] = last.model_copy(update={"buttons": sphere_followup_buttons()})
-    return result
-
-
-def _with_astrology_keyboard(
-    result: list[OutboundMessage],
-    vertical_id: str,
-) -> list[OutboundMessage]:
-    """Добавить постоянную клавиатуру к последнему сообщению вертикали astrology.
-
-    Клавиатура нужна в каждом ответе, иначе существующие пользователи её не видят.
-    Если у последнего сообщения уже задан ``reply_keyboard`` — не трогаем.
-    """
-    if vertical_id.strip() != "astrology" or not result:
-        return result
-    last = result[-1]
-    if last.reply_keyboard is None:
-        result[-1] = last.model_copy(update={"reply_keyboard": ASTROLOGY_REPLY_KEYBOARD})
     return result
 
 
@@ -278,7 +265,6 @@ def _handle_forecast_menu() -> list[OutboundMessage]:
                     {"text": "🔭 Год", "callback_data": "mdl:fc_year"},
                 ],
             ],
-            reply_keyboard=ASTROLOGY_REPLY_KEYBOARD,
         )
     ]
 

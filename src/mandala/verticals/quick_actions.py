@@ -75,13 +75,6 @@ _KEYBOARD_TEXT_TO_CODE: dict[str, str] = {
 SPECIAL_BUTTON_CODES = frozenset({"__switch_system:western__", "__switch_system:vedic__"})
 RESET_BUTTON_TEXT = "🔄 Начать заново"
 
-# Постоянная нижняя клавиатура для вертикали astrology.
-# Основной поток кнопок — навигация по контенту (натальная карта, прогноз).
-# Профиль / сброс / help вынесены в бургер-меню бота (setMyCommands), см. bot_commands.py.
-ASTROLOGY_REPLY_KEYBOARD: list[list[str]] = [
-    ["🔮 Натальная карта", "📊 Прогноз"],
-]
-
 # Код-триггер подменю прогноза (не передаётся в LLM)
 FORECAST_MENU_CODE = "__forecast_menu__"
 
