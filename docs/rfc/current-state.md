@@ -78,11 +78,13 @@ Observability (observability.py) # op_format, mask_api_key
 - **Geocoding failsafe**: `ValueError: City not found` / `Geocoding failed` → мягкое сообщение пользователю с предложением указать ближайший крупный город
 
 ### Кнопки и клавиатура (retention-петля)
-- Постоянная Reply-клавиатура `ASTROLOGY_REPLY_KEYBOARD`:
-  ```
-  [🔮 Натальная карта] [📊 Прогноз]
-  [👤 Профиль]         [🔄 Начать заново]
-  ```
+- **Навигация только inline** (постоянная Reply-клавиатура `ASTROLOGY_REPLY_KEYBOARD`
+  удалена). Каждый ответ заканчивается inline-клавиатурой, которую выбирает LLM через
+  nav-блок; при отсутствии валидного nav контекстный fallback навешивает
+  `services/nav_guarantee.py` (`ensure_nav`). `outbound_send` навешивает одноразовый
+  `ReplyKeyboardRemove` на первое сообщение без кнопок, чтобы убрать залипшую клавиатуру
+  у старых пользователей. Подробно — [../astrology/navigator-ux.md](../astrology/navigator-ux.md).
+- Профиль / сброс / помощь — в бургер-меню (`setMyCommands`), не на клавиатуре.
 - Inline-подменю прогноза: «📅 Сегодня», «📆 Неделя», «🗓️ Месяц», «🔭 Год» (callback_data: `mdl:fc_today` и т.д.)
 - **Inline-кнопки сфер** после каждого LLM-ответа (`_with_sphere_followup`): 6 тем в 2 ряда — Личность, Отношения, Партнёр, Карьера, Финансы, Здоровье
 - Callback routing в `domain/handler.py`: `expand_inbound_quick_action()` → LLM-промпт
