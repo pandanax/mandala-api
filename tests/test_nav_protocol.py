@@ -11,6 +11,22 @@ from mandala.services.nav_protocol import (
     resolve_nav_action,
     split_llm_nav_suffix,
 )
+from mandala.verticals.client_knowledge import split_llm_agent_card_suffix
+
+
+def _buttons_via_text_reply_path(reply: str) -> int:
+    """Сколько кнопок навигации переживают ТОЧНЫЙ разбор из ``text_reply``.
+
+    Повторяет последовательность :func:`handle_inbound_text_llm`: nav-хвост → agent-card
+    хвост → (если nav-JSON нет) прозаический fallback → ``assign_ids``. Число рядов
+    inline-клавиатуры = число кнопок (по одной в ряд).
+    """
+    reply_wo_nav, spec = split_llm_nav_suffix(reply)
+    cleaned, _patch = split_llm_agent_card_suffix(reply_wo_nav)
+    if spec is None:
+        cleaned, spec = extract_prose_nav(cleaned)
+    return len(assign_ids(spec).buttons) if spec is not None else 0
+
 
 _VALID_BLOCK = (
     "Луна во Льве даёт яркость и потребность в признании.\n"
@@ -215,3 +231,81 @@ def test_resolve_ignores_non_nav_and_empty_map() -> None:
     assert resolve_nav_action("обычный текст", _nav_map()) is None
     assert resolve_nav_action(f"{NAV_CALLBACK_PREFIX}n0", None) is None
     assert resolve_nav_action(None, _nav_map()) is None
+
+
+# --- Регрессия: nav-блок не должен схлопываться в одну фолбэк-кнопку -------------------
+#
+# Симптом (фидбек капитана): каждый ответ заканчивался единственной кнопкой «⬅️ К темам».
+# Это крайний фолбэк nav_guarantee, который срабатывает, когда у сообщения НЕТ своих
+# кнопок. Причина: слабая модель (deepseek-v4-flash) периодически оформляет валидный
+# nav-JSON не идеально (markdown-ограждение, прощальная фраза после «}», висячая запятая,
+# выделенный/пробельный маркер) — а строгий разбор отвергал такой блок целиком, и рич-
+# навигация исчезала. Ниже — реалистичные «грязные» ответы; каждый ДОЛЖЕН дать ≥2 кнопки
+# через полный путь разбора text_reply. До фикса каждый давал 0 (→ одна фолбэк-кнопка).
+
+_RICH_NAV_JSON = (
+    '{"buttons":['
+    '{"label":"🌙 Сон и восстановление","q":"Что карта говорит о сне?"},'
+    '{"label":"🏃 Подходящая активность","q":"Какая активность мне подходит?"},'
+    '{"label":"⬅️ К другим темам","q":"Какие ещё темы можно разобрать?"}],'
+    '"terms":[{"term":"Луна в Рыбах","q":"Про мою Луну в Рыбах"}]}'
+)
+
+
+def test_regression_json_wrapped_in_markdown_fence_survives() -> None:
+    reply = f"Короткий ответ про энергию.\n\n{NAV_MARKER}\n```json\n{_RICH_NAV_JSON}\n```"
+    assert _buttons_via_text_reply_path(reply) >= 2
+
+
+def test_regression_trailing_prose_after_json_survives() -> None:
+    reply = (
+        f"Короткий ответ про энергию.\n\n{NAV_MARKER}\n{_RICH_NAV_JSON}\n\n"
+        "Надеюсь, это поможет! Спрашивай ещё."
+    )
+    assert _buttons_via_text_reply_path(reply) >= 2
+
+
+def test_regression_trailing_comma_json_survives() -> None:
+    reply = (
+        f"Ответ.\n\n{NAV_MARKER}\n"
+        '{"buttons":[{"label":"🌙 Сон","q":"про сон"},'
+        '{"label":"⬅️ К другим темам","q":"другие темы"},],"terms":[]}'
+    )
+    assert _buttons_via_text_reply_path(reply) >= 2
+
+
+def test_regression_bolded_marker_survives() -> None:
+    reply = f"Короткий ответ.\n\n**{NAV_MARKER}**\n{_RICH_NAV_JSON}"
+    text, spec = split_llm_nav_suffix(reply)
+    assert spec is not None
+    assert NAV_MARKER not in text  # выделенный маркер срезан из видимого текста
+    assert "**" not in text.rstrip()[-3:]  # и не оставил висячих звёздочек
+    assert _buttons_via_text_reply_path(reply) >= 2
+
+
+def test_regression_spaced_marker_survives() -> None:
+    reply = f"Короткий ответ.\n\n--- mandala-nav ---\n{_RICH_NAV_JSON}"
+    assert _buttons_via_text_reply_path(reply) >= 2
+
+
+def test_regression_fence_plus_card_block_before_nav_survives() -> None:
+    # Полный «боевой» ответ: разбор + сохранение карты (---mandala---) + nav в ограждении.
+    reply = (
+        "Подробный разбор твоей натальной карты...\n\n"
+        "---mandala---\n"
+        '{"natal_chart_text":"Солнце в Близнецах, Луна в Рыбах, Асцендент Весы"}\n'
+        f"{NAV_MARKER}\n```json\n{_RICH_NAV_JSON}\n```"
+    )
+    reply_wo_nav, spec = split_llm_nav_suffix(reply)
+    cleaned, patch = split_llm_agent_card_suffix(reply_wo_nav)
+    assert spec is not None and len(assign_ids(spec).buttons) >= 2  # рич-навигация уцелела
+    assert patch.get("natal_chart_text")  # и карта всё ещё сохраняется
+    assert cleaned.strip().startswith("Подробный разбор")
+
+
+def test_regression_genuine_garbage_still_degrades_to_none() -> None:
+    # Контроль: настоящий мусор НЕ должен «спасаться» толерантным разбором.
+    reply = f"Короткое сообщение.\n{NAV_MARKER}\n{{не валидный json,,,}}"
+    text, spec = split_llm_nav_suffix(reply)
+    assert spec is None
+    assert NAV_MARKER not in text

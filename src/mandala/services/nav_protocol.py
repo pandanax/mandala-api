@@ -39,8 +39,17 @@ from dataclasses import dataclass
 
 from mandala.verticals.client_knowledge import MANDALA_AGENT_CARD_MARKER
 
-# Маркер блока навигации в конце ответа модели (отдельная строка).
+# Маркер блока навигации в конце ответа модели (отдельная строка). Это КАНОНИЧЕСКАЯ
+# форма — её мы просим у модели и печатаем сами. Для РАЗБОРА ответа используется
+# толерантный :data:`_NAV_MARKER_RE`, т.к. слабая модель иногда оборачивает маркер в
+# markdown-выделение (``**---mandala-nav---**``) или добавляет пробелы/лишние дефисы.
 NAV_MARKER = "---mandala-nav---"
+
+# Толерантное распознавание маркера: ядро ``mandala-nav`` уникально и не встречается в
+# обычном тексте, поэтому вокруг него допускаем markdown-эмфазис (``*``/``_``/`` ` ``/``~``),
+# 2+ дефиса с каждой стороны и внутренние пробелы. Так nav-блок доходит до кнопок, даже
+# если модель слегка исказила оформление маркера.
+_NAV_MARKER_RE = re.compile(r"[*_`~]{0,3}-{2,}\s*mandala-nav\s*-{2,}[*_`~]{0,3}")
 
 # Префикс callback_data для кнопок навигации (Telegram ≤64 байта).
 NAV_CALLBACK_PREFIX = "mdl:nav:"
@@ -109,14 +118,88 @@ def _query_of(item: Mapping[str, object]) -> str:
     return (_coerce_str(item.get("q")) or _coerce_str(item.get("query")))[:_MAX_QUERY_CHARS]
 
 
+def _strip_code_fences(s: str) -> str:
+    """Снять markdown-ограждение ``` ``` ``` ``` (в т.ч. ``` ```json ```) вокруг тела блока."""
+    t = s.strip()
+    if not t.startswith("```"):
+        return t
+    first_nl = t.find("\n")
+    if first_nl != -1:  # выкинуть строку открывающего ограждения (``` или ```json)
+        t = t[first_nl + 1 :]
+    t = t.rstrip()
+    if t.endswith("```"):
+        t = t[:-3]
+    return t.strip()
+
+
+def _first_json_object(s: str) -> str | None:
+    """Первый сбалансированный объект ``{...}`` в строке (с учётом строк-литералов).
+
+    Позволяет игнорировать текст ДО и ПОСЛЕ JSON (слабая модель любит дописать после
+    nav-JSON прощальную фразу — «Надеюсь, это поможет!»), не ломая разбор.
+    """
+    start = s.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(s)):
+        ch = s[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return s[start : i + 1]
+    return None
+
+
+def _loads_nav_object(tail: str) -> dict[str, object] | None:
+    """Толерантно разобрать JSON-объект nav-блока (``None``, если объект не извлечь).
+
+    Реальные ответы слабой модели (astrology = deepseek-v4-flash) редко бывают идеально
+    чистым однострочным JSON: встречаются markdown-ограждение ``` ```json ```, текст после
+    закрывающей ``}`` и висячие запятые. Строгий ``json.loads`` по всему хвосту отвергает
+    такой блок целиком — и навигация схлопывается в единственную фолбэк-кнопку. Пробуем по
+    очереди: строгий разбор → снятие ограждения → первый сбалансированный ``{...}`` →
+    удаление висячих запятых. Настоящий мусор (``{не json,,,}``) по-прежнему даёт ``None``.
+    """
+    candidates: list[str] = [tail]
+    stripped = _strip_code_fences(tail)
+    if stripped and stripped != tail:
+        candidates.append(stripped)
+    obj = _first_json_object(stripped)
+    if obj is not None:
+        candidates.append(obj)
+        no_trailing_commas = re.sub(r",(\s*[}\]])", r"\1", obj)
+        if no_trailing_commas != obj:
+            candidates.append(no_trailing_commas)
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
 def _parse_nav_json(tail: str) -> NavSpec | None:
     """Разобрать JSON-тело блока навигации; ``None`` при любой невалидности."""
     if not tail:
         return None
-    try:
-        parsed = json.loads(tail)
-    except (json.JSONDecodeError, ValueError):
-        return None
+    parsed = _loads_nav_object(tail)
     if not isinstance(parsed, dict):
         return None
 
@@ -162,11 +245,14 @@ def split_llm_nav_suffix(reply: str) -> tuple[str, NavSpec | None]:
     блок ``---mandala---``, он переносится обратно в head — чтобы его смог обработать
     :func:`mandala.verticals.client_knowledge.split_llm_agent_card_suffix`.
     """
-    if not reply or NAV_MARKER not in reply:
+    if not reply or "mandala-nav" not in reply:
         return reply, None
-    idx = reply.rfind(NAV_MARKER)
-    head = reply[:idx].rstrip()
-    tail = reply[idx + len(NAV_MARKER) :].strip()
+    matches = list(_NAV_MARKER_RE.finditer(reply))
+    if not matches:
+        return reply, None
+    m = matches[-1]  # последний блок — фактический nav-хвост ответа
+    head = reply[: m.start()].rstrip()
+    tail = reply[m.end() :].strip()
 
     carry = ""
     if MANDALA_AGENT_CARD_MARKER in tail:
