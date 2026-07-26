@@ -71,6 +71,37 @@ into a fresh venv pulls newer numpy whose typeshed uses PEP 695 `type` statement
 (configured `python_version = 3.11`) rejects on numpy stubs. Prefer `uv sync`, or pin
 `numpy==2.4.4 mypy==1.20.2` to match the lock before running `scripts/check.sh`.
 
+### Destiny Matrix («Карта судьбы») — second capability in the astrology vertical
+
+Матрица Судьбы (Natalia Ladini, «22 кода судьбы») is a **separate system from astrology**:
+pure numerology of the birth **date** (no ephemeris, time, or place — 22 Major Arcana on an
+octagram). It is a **capability inside the `astrology` vertical**, not a new vertical: it
+reuses the existing intake (DOB already collected), reply path, and LLM-nav protocol — no
+second bot/wizard. Authoritative engine: `src/mandala/astro/destiny_matrix.py`.
+
+- **Python computes, LLM interprets** (same house rule as natal chart). `compute_destiny_matrix`
+  builds the full chart; `destiny_matrix_to_system_text` injects it as DATA into the astrology
+  system prompt — wired in `services/text_reply.py` (computed on the fly whenever `birth_date`
+  is present, gated in a try/except). Arcana **values** come from the KB (RAG), not the module.
+- **Reduction = digit-sum** (26→8; 22 kept), NOT «subtract 22». Dominant public convention
+  (Ladini's own examples + most calculators). Documented in the module + regression test.
+- **Accuracy:** `tests/test_destiny_matrix_regression.py` reproduces the CORE octagram of two
+  external calculators exactly (07.01.1987, 29.01.1991) and snapshots the derived lines. The
+  derived lines (purpose/money/love/chakra/родовые) have **no single public canon** — one
+  documented standard construction is implemented; state that, don't claim a canon.
+- **KB** lives in `verticals/kb/astrology/destiny_matrix/*.md` (all 22 arcana + positions +
+  chakra map + lines). Same vertical as natal-chart KB — retrieval is semantic, they coexist.
+  The prompt (`verticals/prompts.py`) tells the model to offer «Карту судьбы» via nav buttons.
+
+### RAG activation (Матрица Судьбы KB)
+
+RAG is off by default (`MANDALA_RAG_BACKEND=none`). Local dev path and prod requirement are in
+`.env.example` (RAG/Qdrant section): `podman compose up -d qdrant` → set `MANDALA_RAG_BACKEND=qdrant`
++ `QDRANT_URL` + `LLM_*` embeddings → `python -m mandala.index_kb --vertical astrology
+--recreate-collection`. Offline proof: `tests/test_rag_destiny_matrix_smoke.py` (real KB →
+in-memory Qdrant → retrieval feeds prompt, deterministic embedder, no network). Prod needs a
+real Qdrant + embedding creds — escalate infra, don't self-provision.
+
 ## Deploy: PORT / EXPOSE / healthcheck contract
 
 Two run paths share one image (`Containerfile`); the app binds `${PORT}`
