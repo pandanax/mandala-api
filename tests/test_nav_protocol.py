@@ -7,6 +7,7 @@ from mandala.services.nav_protocol import (
     NAV_DEEPLINK_PREFIX,
     NAV_MARKER,
     assign_ids,
+    extract_prose_nav,
     resolve_nav_action,
     split_llm_nav_suffix,
 )
@@ -116,7 +117,8 @@ def test_assign_ids_builds_map_buttons_and_term_links() -> None:
     assert render.term_links == [{"term": "Луна во Льве", "payload": f"{NAV_DEEPLINK_PREFIX}t0"}]
 
 
-def test_assign_ids_rows_of_two() -> None:
+def test_assign_ids_one_button_per_row() -> None:
+    # Кнопки навигации — полные заголовки перехода: по одной в ряду (вертикальный список).
     raw = (
         f"m\n{NAV_MARKER}\n"
         '{"buttons":[{"label":"a","q":"1"},{"label":"b","q":"2"},{"label":"c","q":"3"}]}'
@@ -124,7 +126,65 @@ def test_assign_ids_rows_of_two() -> None:
     _, spec = split_llm_nav_suffix(raw)
     assert spec is not None
     render = assign_ids(spec)
-    assert [len(r) for r in render.buttons] == [2, 1]
+    assert [len(r) for r in render.buttons] == [1, 1, 1]
+
+
+def test_split_keeps_full_heading_label() -> None:
+    # label — полный интересный заголовок (до 64 символов), не «1️⃣ …».
+    label = "🌙 Ночное восстановление: что говорит карта о сне и расслаблении"
+    raw = f'm\n{NAV_MARKER}\n{{"buttons":[{{"label":"{label}","q":"расскажи про сон"}}]}}'
+    _, spec = split_llm_nav_suffix(raw)
+    assert spec is not None
+    assert spec.buttons[0].label == label
+
+
+# --- extract_prose_nav: fallback для прозаического списка «куда дальше» ----------------
+
+
+def test_extract_prose_nav_pulls_trailing_bullets_into_buttons() -> None:
+    # Точный кейс капитана: модель написала «куда дальше» прозой без nav-JSON.
+    text = (
+        "Ваша карта говорит о высокой, но неровной энергии — важен режим.\n\n"
+        "• 🌙 Ночное восстановление: что говорит карта о сне и расслаблении\n"
+        "• 🏃 Оптимальный тип физической нагрузки по натальной карте\n"
+        "• ⬅️ Вернуться к другим темам"
+    )
+    cleaned, spec = extract_prose_nav(text)
+    assert spec is not None
+    # Пункты «куда дальше» ушли из видимого текста в кнопки.
+    assert "Ночное восстановление" not in cleaned
+    assert "Вернуться к другим темам" not in cleaned
+    assert cleaned.strip().startswith("Ваша карта говорит")
+    labels = [b.label for b in spec.buttons]
+    assert labels[0].startswith("🌙 Ночное восстановление")
+    assert labels[1].startswith("🏃")
+    # Возврат распознан и получил общий запрос «к темам».
+    assert "⬅️" in labels[2]
+    assert spec.buttons[2].query == "Какие ещё темы можно разобрать по моей натальной карте?"
+    # Обычные пункты получают запрос от лица пользователя.
+    assert spec.buttons[0].query.startswith("Расскажи подробнее")
+
+
+def test_extract_prose_nav_no_bullets_returns_text_unchanged() -> None:
+    text = "Луна во Льве даёт яркость. Готов углубиться в любую тему."
+    cleaned, spec = extract_prose_nav(text)
+    assert spec is None
+    assert cleaned == text
+
+
+def test_extract_prose_nav_ignores_single_bullet() -> None:
+    text = "Короткий разбор.\n\n• Единственный пункт без блока навигации"
+    cleaned, spec = extract_prose_nav(text)
+    assert spec is None
+    assert cleaned == text
+
+
+def test_extract_prose_nav_never_empties_message() -> None:
+    # Сообщение состоит ТОЛЬКО из буллетов — вырезать нечего, текст не трогаем.
+    text = "• Первая тема\n• Вторая тема\n• ⬅️ Назад"
+    cleaned, spec = extract_prose_nav(text)
+    assert spec is None
+    assert cleaned == text
 
 
 # --- resolve_nav_action ----------------------------------------------------------------

@@ -43,7 +43,7 @@ from mandala.rag.protocol import KbSearchPort
 from mandala.repositories.messages import MessageDTO, MessageRepository
 from mandala.repositories.profiles import ProfileRepository
 from mandala.services.llm_time_context import build_llm_time_context_block
-from mandala.services.nav_protocol import assign_ids, split_llm_nav_suffix
+from mandala.services.nav_protocol import assign_ids, extract_prose_nav, split_llm_nav_suffix
 from mandala.services.quota import RESOURCE_TEXT_REPLY, QuotaService
 from mandala.services.telegram_stars import build_premium_invoice_message
 from mandala.verticals import get_vertical_system_prompt
@@ -310,6 +310,10 @@ def handle_inbound_text_llm(
     if event.vertical_id.strip() == "astrology":
         reply_wo_nav, nav_spec = split_llm_nav_suffix(reply)
         cleaned_reply, agent_patch = split_llm_agent_card_suffix(reply_wo_nav)
+        # Модель не дала валидный nav-JSON, но могла написать пункты «куда дальше» прозой —
+        # вытащим их в кнопки и уберём из видимого текста (переходы живут только в кнопках).
+        if nav_spec is None:
+            cleaned_reply, nav_spec = extract_prose_nav(cleaned_reply)
     else:
         cleaned_reply, agent_patch = reply, {}
     # Защита от пустого ответа: если после отделения хвостов ничего не осталось,

@@ -7,10 +7,14 @@
 
     <короткое сообщение пользователю>
     ---mandala-nav---
-    {"buttons":[{"label":"1️⃣ …","q":"…"}], "terms":[{"term":"…","q":"…"}]}
+    {"buttons":[{"label":"🌙 Ночное восстановление: что говорит карта о сне","q":"…"}],
+     "terms":[{"term":"…","q":"…"}]}
 
-- ``buttons`` — inline-кнопки навигации «следующий шаг» (углубиться / сменить тему /
-  вернуться назад). ``label`` — текст кнопки, ``q`` — полный запрос к LLM при нажатии.
+- ``buttons`` — inline-кнопки навигации «куда дальше». Это те самые контекстные
+  предложения модели «что разобрать следующим», вынесенные в кнопки (а НЕ прозой в
+  тексте). ``label`` — ПОЛНЫЙ интересный заголовок перехода, ``q`` — запрос от лица
+  пользователя, продолжающий эту ветку (выполняется при нажатии). Если модель всё же
+  написала пункты прозой без JSON — :func:`extract_prose_nav` вытащит их в кнопки.
 - ``terms`` — сущности/термины, которые ДОСЛОВНО встречаются в тексте сообщения
   (например «Луна во Льве»). Канал делает их кликабельными (Telegram — inline
   deep-link ``t.me/<bot>?start=<payload>``); клик → объяснение термина + новая навигация.
@@ -29,6 +33,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -46,11 +51,15 @@ NAV_DEEPLINK_PREFIX = "mdlnav_"
 # Ограничения на размер: защищают от «полотна» и от переполнения лимитов Telegram.
 _MAX_BUTTONS = 8
 _MAX_TERMS = 8
-_MAX_LABEL_CHARS = 48
+# Кнопки навигации — это ПОЛНЫЕ «куда дальше» заголовки («🌙 Ночное восстановление: что
+# говорит карта о сне»), а не «1️⃣ Подробнее». Держим щедрый лимит (Telegram переносит
+# длинную подпись кнопки на несколько строк).
+_MAX_LABEL_CHARS = 64
 _MAX_TERM_CHARS = 48
 _MAX_QUERY_CHARS = 400
-# Сколько кнопок навигации в одном ряду inline-клавиатуры.
-_BUTTONS_PER_ROW = 2
+# По одной кнопке в ряду: подписи длинные (полные заголовки перехода), вертикальный
+# список читается как «куда двигаться дальше», а не как тесная сетка.
+_BUTTONS_PER_ROW = 1
 
 
 @dataclass(frozen=True)
@@ -170,6 +179,110 @@ def split_llm_nav_suffix(reply: str) -> tuple[str, NavSpec | None]:
         head = f"{head}\n{carry}".strip()
     cleaned = head if head else reply
     return cleaned, spec
+
+
+# --- Fallback: прозаический список «куда дальше» → кнопки навигации --------------------
+#
+# Модель послабее (astrology = deepseek-v4-flash) иногда игнорирует служебный nav-JSON и
+# пишет пункты «что разобрать дальше» буллетами прямо в тексте. Тогда мы вытаскиваем этот
+# завершающий блок буллетов в :class:`NavSpec` и убираем строки из видимого текста — чтобы
+# переходы жили ТОЛЬКО в кнопках, а не дублировались прозой (главное требование UX).
+
+# Строка-буллет: •, -, –, —, *, ‣, ▪, ·, », →, «1.»/«1)», keycap-эмодзи «1️⃣».
+_BULLET_RE = re.compile(r"^\s*(?:[•\-–—*‣▪·»]|→|\d+[.)]|[0-9]️?⃣)\s+(?P<item>.+\S)\s*$")
+# Подсказки, что строка НАД блоком — это заголовок «куда дальше».
+_NEXT_STEP_CUES = (
+    "дальше",
+    "куда",
+    "продолж",
+    "могу рассказать",
+    "могу разобрать",
+    "что ещё",
+    "что еще",
+    "хотите",
+    "выбер",
+    "направлен",
+    "по темам",
+)
+# Подсказки, что пункт — это «назад / к темам».
+_BACK_CUES = ("назад", "вернут", "к темам", "к другим", "другим темам", "обратно")
+_BACK_EMOJI = "⬅"
+# Запрос для кнопки-возврата (общий).
+_BACK_QUERY = "Какие ещё темы можно разобрать по моей натальной карте?"
+
+
+def _core_phrase(item: str) -> str:
+    """Убрать ведущие эмодзи/пунктуацию из пункта, оставив смысловое начало заголовка."""
+    core = re.sub(r"^[^\w]+", "", item, flags=re.UNICODE).strip()
+    return core or item.strip()
+
+
+def _is_back_item(item: str) -> bool:
+    low = item.lower()
+    return _BACK_EMOJI in item or any(cue in low for cue in _BACK_CUES)
+
+
+def _prose_item_to_option(item: str) -> NavOption:
+    label = item.strip()[:_MAX_LABEL_CHARS]
+    if _is_back_item(item):
+        query = _BACK_QUERY
+    else:
+        query = f"Расскажи подробнее: {_core_phrase(item)}"
+    return NavOption(label=label, query=query[:_MAX_QUERY_CHARS])
+
+
+def extract_prose_nav(text: str) -> tuple[str, NavSpec | None]:
+    """Fallback-разбор: вынести прозаический список «куда дальше» из текста в кнопки.
+
+    Возвращает ``(текст_без_блока, NavSpec)`` если в конце сообщения найден уверенный блок
+    буллетов-переходов; иначе ``(text, None)`` — текст не трогаем. Никогда не вырезает весь
+    текст (сообщение не должно стать пустым) и требует ≥2 пунктов.
+    """
+    if not text or not text.strip():
+        return text, None
+    lines = text.rstrip().split("\n")
+
+    # Максимальный завершающий блок строк-буллетов (снизу вверх).
+    run: list[str] = []
+    i = len(lines) - 1
+    while i >= 0:
+        if lines[i].strip() == "":
+            if run:
+                break
+            i -= 1
+            continue
+        m = _BULLET_RE.match(lines[i])
+        if m is None:
+            break
+        run.append(m.group("item").strip())
+        i -= 1
+    run.reverse()
+    if len(run) < 2:
+        return text, None
+
+    # Строка непосредственно над блоком — возможный заголовок «Куда дальше:».
+    heading_idx = i
+    heading_is_cue = False
+    if heading_idx >= 0:
+        h = lines[heading_idx].strip().lower()
+        if h and ((h.endswith(":") and len(h) <= 60) or any(cue in h for cue in _NEXT_STEP_CUES)):
+            heading_is_cue = True
+
+    body_lines = lines[:heading_idx] if heading_is_cue else lines[: heading_idx + 1]
+    body_text = "\n".join(body_lines).rstrip()
+    if not body_text.strip():
+        # Всё сообщение — сам блок: вырезать нечего показать пользователю → не трогаем.
+        return text, None
+
+    has_back = any(_is_back_item(it) for it in run)
+    prose_above = any(len(ln.strip()) >= 30 and _BULLET_RE.match(ln) is None for ln in body_lines)
+    topic_like = all(not it.rstrip().endswith((".", "!")) for it in run)
+    confident = heading_is_cue or has_back or (prose_above and topic_like and 2 <= len(run) <= 5)
+    if not confident:
+        return text, None
+
+    buttons = tuple(_prose_item_to_option(it) for it in run[:_MAX_BUTTONS])
+    return body_text, NavSpec(buttons=buttons, terms=())
 
 
 def assign_ids(spec: NavSpec) -> NavRender:

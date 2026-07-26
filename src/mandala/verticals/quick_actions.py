@@ -47,6 +47,12 @@ _ASTROLOGY: dict[str, str] = {
     "mdl:switch_vedic": "__switch_system:vedic__",
     # Подменю прогноза
     "mdl:forecast_menu": "__forecast_menu__",
+    # Возврат «к темам» — единственный фолбэк-переход, когда модель не дала навигацию.
+    # Запрос заставляет модель предложить темы разбора → она снова выдаёт контекстные кнопки.
+    "mdl:topics": (
+        "Предложи, с каких тем начать разбор моей натальной карты, и коротко подскажи, "
+        "что можно узнать дальше."
+    ),
     # Профиль и сброс
     "mdl:profile": "__show_profile__",
     # Апселл premium (оплата Telegram Stars)
@@ -91,25 +97,6 @@ PREMIUM_TOPUP_CODE = "__premium_topup__"
 
 # callback_data кнопки апселла premium (общий для всех вертикалей).
 PREMIUM_BUTTON_CALLBACK = "mdl:premium"
-
-
-def sphere_followup_buttons() -> list[list[dict[str, str]]]:
-    """Inline-кнопки сфер жизни для продолжения разбора натальной карты.
-
-    Показываются после содержательных LLM-ответов в вертикали astrology.
-    """
-    return [
-        [
-            {"text": "🧑 Личность", "callback_data": "mdl:th_personality"},
-            {"text": "❤️ Отношения", "callback_data": "mdl:th_rel"},
-            {"text": "💍 Партнёр", "callback_data": "mdl:th_partner"},
-        ],
-        [
-            {"text": "💼 Карьера", "callback_data": "mdl:th_career"},
-            {"text": "💰 Финансы", "callback_data": "mdl:th_fin"},
-            {"text": "⚡ Здоровье", "callback_data": "mdl:th_health"},
-        ],
-    ]
 
 
 def expand_inbound_quick_action(vertical_id: str, text: str | None) -> str | None:

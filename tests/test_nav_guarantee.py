@@ -20,8 +20,22 @@ def test_fallback_buttons_known_verticals_and_unknown() -> None:
 def test_ensure_nav_adds_fallback_to_buttonless_last_message() -> None:
     out = ensure_nav([OutboundMessage(text="Разбор вашей карты…")], "astrology")
     assert out[-1].buttons is not None
-    # Кнопки-фолбэк несут известные системе callback-коды навигации.
-    assert "mdl:natal" in _flat_callbacks(out[-1])
+    codes = _flat_callbacks(out[-1])
+    # Фолбэк — единственная возвратная кнопка «⬅️ К темам» (→ модель снова даст навигацию),
+    # а НЕ статические контентные кнопки Натальная/Прогноз/Сферы/Профиль (они в бургер-меню).
+    assert codes == ["mdl:topics"]
+    for stale in ("mdl:natal", "mdl:forecast_menu", "mdl:th_personality", "mdl:profile"):
+        assert stale not in codes
+
+
+def test_astrology_fallback_is_single_back_button() -> None:
+    from mandala.services.nav_guarantee import fallback_nav_buttons
+
+    rows = fallback_nav_buttons("astrology")
+    assert rows is not None
+    flat = [c for row in rows for c in row]
+    assert len(flat) == 1
+    assert flat[0]["callback_data"] == "mdl:topics"
 
 
 def test_ensure_nav_preserves_llm_nav_buttons() -> None:

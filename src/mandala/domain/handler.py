@@ -30,7 +30,6 @@ from mandala.verticals.quick_actions import (
     is_reset_button,
     is_show_profile,
     is_system_switch,
-    sphere_followup_buttons,
 )
 
 logger = logging.getLogger(__name__)
@@ -121,7 +120,29 @@ def handle_inbound(
             dialog_summary=dialog_summary_nav,
             agent_card=profile.agent_card,
         )
-        text_result = _with_sphere_followup(text_result, event.vertical_id)
+        return ensure_nav(text_result, event.vertical_id)
+
+    # Бургер-команды навигации astrology: «Натальная карта» (/natal) и «Прогноз»
+    # (/forecast) переехали из inline-кнопок в меню (setMyCommands). Обрабатываем их
+    # ДО анкеты — как навигацию: /forecast → подменю периодов; /natal → разбор карты
+    # обычным LLM-ходом (минуя анкету, как клик по бывшей кнопке «Натальная карта»).
+    burger = _burger_nav_command(event.vertical_id, event.text)
+    if burger == "forecast":
+        return _handle_forecast_menu()
+    if burger == "natal":
+        natal_query = expand_inbound_quick_action(event.vertical_id, "mdl:natal")
+        raw_summary_natal = profile.scenario_state.get("dialog_summary")
+        summary_natal = raw_summary_natal.strip() if isinstance(raw_summary_natal, str) else None
+        natal_event = event.model_copy(update={"text": natal_query})
+        text_result = handle_inbound_text_llm(
+            conn,
+            natal_event,
+            uid,
+            llm_client=llm_client,
+            kb_search=kb_search,
+            dialog_summary=summary_natal,
+            agent_card=profile.agent_card,
+        )
         return ensure_nav(text_result, event.vertical_id)
 
     intake_out = handle_intake_before_llm(conn, event, uid, profile)
@@ -225,26 +246,24 @@ def handle_inbound(
         dialog_summary=dialog_summary,
         agent_card=profile.agent_card,
     )
-    text_result = _with_sphere_followup(text_result, event.vertical_id)
     return ensure_nav(text_result, event.vertical_id)
 
 
-def _with_sphere_followup(
-    result: list[OutboundMessage],
-    vertical_id: str,
-) -> list[OutboundMessage]:
-    """Добавить inline-кнопки сфер к последнему сообщению LLM-ответа astrology.
+# Бургер-команды навигации (setMyCommands) → внутренний код. Только astrology.
+_BURGER_NAV_COMMANDS = {"/natal": "natal", "/forecast": "forecast"}
 
-    Показывается только если последний ответ содержит текст и не имеет кнопок —
-    приглашает пользователя выбрать тему для углублённого разбора.
+
+def _burger_nav_command(vertical_id: str, text: str | None) -> str | None:
+    """Распознать бургер-команду навигации ``/natal`` / ``/forecast`` (форма ``/cmd@bot`` тоже).
+
+    Возвращает ``"natal"`` / ``"forecast"`` для astrology, иначе ``None``.
     """
-    if vertical_id.strip() != "astrology" or not result:
-        return result
-    last = result[-1]
-    # Добавляем только если нет уже заданных inline-кнопок и есть текст
-    if last.buttons is None and last.text:
-        result[-1] = last.model_copy(update={"buttons": sphere_followup_buttons()})
-    return result
+    if vertical_id.strip() != "astrology" or not text:
+        return None
+    head = text.strip().split(maxsplit=1)[0]
+    if "@" in head:
+        head = head.split("@", 1)[0]
+    return _BURGER_NAV_COMMANDS.get(head.lower())
 
 
 def _handle_forecast_menu() -> list[OutboundMessage]:

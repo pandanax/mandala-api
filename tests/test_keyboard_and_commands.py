@@ -79,6 +79,67 @@ def test_burger_menu_contains_profile_reset_help() -> None:
     assert "help" in names
 
 
+def test_burger_menu_contains_natal_and_forecast() -> None:
+    # «Натальная карта» и «Прогноз» переехали из inline-кнопок в бургер-меню.
+    from mandala.adapters.telegram.bot_commands import BOT_COMMANDS
+
+    names = [cmd for cmd, _ in BOT_COMMANDS]
+    assert "natal" in names
+    assert "forecast" in names
+
+
+def test_burger_command_recognizes_natal_and_forecast() -> None:
+    from mandala.domain.handler import _burger_nav_command
+
+    assert _burger_nav_command("astrology", "/forecast") == "forecast"
+    assert _burger_nav_command("astrology", "/natal") == "natal"
+    assert _burger_nav_command("astrology", "/natal@MandalaBot") == "natal"
+    # Не бургер-команда / не та вертикаль → None.
+    assert _burger_nav_command("astrology", "расскажи про мою луну") is None
+    assert _burger_nav_command("therapy", "/natal") is None
+
+
+def test_forecast_burger_command_shows_period_menu(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # /forecast из меню → то же подменю периодов, что раньше давала inline-кнопка «Прогноз».
+    from unittest.mock import MagicMock
+    from uuid import uuid4
+
+    import mandala.domain.handler as handler_mod
+    from mandala.domain.contracts import InboundEvent
+
+    class _Profiles:
+        def __init__(self, _conn: object) -> None:
+            pass
+
+        def ensure_row(self, **_kw: object) -> None:
+            return None
+
+        def get_by_user_id(self, _uid: object) -> object:
+            prof = MagicMock()
+            prof.agent_card = {}
+            prof.scenario_state = {}
+            return prof
+
+    class _Identity:
+        def __init__(self, _conn: object) -> None:
+            pass
+
+        def get_or_create_user(self, **_kw: object) -> object:
+            return uuid4()
+
+    monkeypatch.setattr(handler_mod, "ProfileRepository", _Profiles)
+    monkeypatch.setattr(handler_mod, "UserIdentityService", _Identity)
+
+    ev = InboundEvent(
+        vertical_id="astrology", channel="telegram", external_user_id="1", text="/forecast"
+    )
+    out = handler_mod.handle_inbound(ev, MagicMock())
+
+    assert len(out) == 1
+    codes = [cell["callback_data"] for row in (out[0].buttons or []) for cell in row]
+    assert codes == ["mdl:fc_today", "mdl:fc_week", "mdl:fc_month", "mdl:fc_year"]
+
+
 def test_build_profile_message_renders_fields_without_reply_keyboard() -> None:
     from mandala.services.profile_view import build_profile_message
 
