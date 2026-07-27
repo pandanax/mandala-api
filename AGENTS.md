@@ -18,11 +18,21 @@ code: `src/mandala/astro/natal_chart.py`.
   called with the same system as the natal chart; otherwise a forecast overlays a tropical grid
   on a sidereal chart and the answer looks "in between" (real user feedback). Wired in
   `services/text_reply.py`.
-- **Birth time is in the birthplace timezone.** `tz_str` comes from the geocoder
-  (Nominatim + timezonefinder) and is passed to kerykeion, which converts local→UT — not UTC.
-- **Regression:** `tests/test_evgenia_natal_regression.py` reproduces a real user's western +
-  vedic reference charts from reverse-engineered birth data (geocoder mocked, runs offline) and
-  asserts the two schools differ by exactly the Lahiri ayanamsa (not a blend).
+- **Birth time is in the birthplace timezone — never a silent UTC.** `tz_str` comes from the
+  geocoder (Nominatim + timezonefinder) and is passed to kerykeion, which converts local→UT.
+  `_geocode_city` **raises `ValueError("Timezone …")`** when the tz can't be determined (it used
+  to fall back to `"UTC"` silently → local time read as UTC → ascendant/houses shifted by the
+  offset; that was Evgeniya's Gemini-instead-of-Pisces ascendant). `scenario_intake` escalates
+  that to the user; **do not reintroduce a UTC fallback.** Western houses are set **explicitly to
+  Placidus `'P'`** (kerykeion's default today, but defaults drift across versions).
+- **The LLM never builds the chart.** The only source is `calculate_natal_chart`. When no computed
+  `natal_chart_data` exists, `text_reply.build_natal_prompt_section` injects a *prohibition* (never
+  a saved LLM chart text) — better to honestly not build it than fabricate. The old
+  `natal_chart_text` LLM-authored path is gone from the prompt/injection (the parser key stays only
+  to strip the `---mandala---` marker). "Has a chart" = computed data present, not saved text.
+- **Regression:** `tests/test_evgenia_natal_regression.py` (two-school accuracy) +
+  `tests/test_natal_tz_and_no_fabrication.py` (tz-not-UTC raises, local-time ascendant, western
+  Placidus reference, no-fabrication). Both mock the geocoder and run offline.
 
 ### LLM navigation protocol (astrology «robot navigator» UX)
 

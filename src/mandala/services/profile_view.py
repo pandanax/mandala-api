@@ -53,9 +53,6 @@ def build_profile_message(vertical_id: str, agent_card: dict[str, Any]) -> Outbo
         calc_at = natal_data.get("calculated_at", "")
         if calc_at:
             lines.append(f"  📐 Рассчитано: {str(calc_at)[:10]}")
-    elif agent_card.get("natal_chart_text"):
-        lines.append("")
-        lines.append("📋 Натальная карта сохранена (текстовая версия).")
 
     promo = agent_card.get("activated_promo")
     if isinstance(promo, str) and promo.strip():

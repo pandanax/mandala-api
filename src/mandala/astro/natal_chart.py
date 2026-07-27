@@ -78,13 +78,24 @@ def _geocode_city(city: str) -> tuple[float, float, str]:
     lat = float(data[0]["lat"])
     lng = float(data[0]["lon"])
 
+    # Часовой пояс МЕСТА рождения обязателен: время из анкеты — местное (local
+    # wall-clock), и kerykeion конвертит его local→UT именно по этому tz. Молчаливый
+    # фолбэк в "UTC" читал бы местное время как UTC (сдвиг на весь оффсет пояса →
+    # неверный асцендент/дома — ровно жалоба пользователя). Поэтому неопределимый
+    # пояс — это ОШИБКА/эскалация, а не тихий UTC.
     try:
         from timezonefinder import TimezoneFinder
 
-        tf = TimezoneFinder()
-        tz_str = tf.timezone_at(lat=lat, lng=lng) or "UTC"
-    except Exception:
-        tz_str = "UTC"
+        tz_str = TimezoneFinder().timezone_at(lat=lat, lng=lng)
+    except Exception as exc:
+        raise ValueError(
+            f"Timezone lookup failed for '{city}' ({lat:.4f},{lng:.4f}): {exc}"
+        ) from exc
+    if not tz_str:
+        raise ValueError(
+            f"Timezone not determined for '{city}' ({lat:.4f},{lng:.4f}); "
+            "cannot treat birth time as local"
+        )
 
     return lat, lng, tz_str
 
@@ -144,13 +155,15 @@ def calculate_natal_chart(
 
     # --- параметры системы ---
     # Zodiac: западная — тропический, ведическая — сидерический с айянамшей Lahiri.
-    zodiac_type = "Sidereal" if system == "vedic" else "Tropic"
+    # ("Tropical", не устаревшее "Tropic" из kerykeion v4.)
+    zodiac_type = "Sidereal" if system == "vedic" else "Tropical"
     sidereal_mode = "LAHIRI" if system == "vedic" else None
-    # Дома: западная традиция — Placidus (дефолт kerykeion, совпадает с референсным
-    # тропическим софтом), ведическая — целознаковая система (whole-sign, 'W'):
-    # каждый знак = один дом, отсчёт от Лагны. Именно так строят Rashi/Bhava в
-    # стандартных ведических картах (см. регресс-тест по карте Евгении).
-    houses_system = "W" if system == "vedic" else None
+    # Дома: западная традиция — Placidus ('P'), совпадает с референсным тропическим
+    # софтом (astrogoo и др.); задаём ЯВНО, а не полагаемся на дефолт kerykeion (он
+    # сейчас Placidus, но дефолты меняются между версиями — ср. Tropic→Tropical).
+    # Ведическая — целознаковая система (whole-sign, 'W'): каждый знак = один дом,
+    # отсчёт от Лагны — так строят Rashi/Bhava (см. регресс-тест по карте Евгении).
+    houses_system = "W" if system == "vedic" else "P"
 
     # --- расчёт ---
     kwargs: dict[str, Any] = {
@@ -265,7 +278,7 @@ def calculate_current_transits(
     """
     from kerykeion import AstrologicalSubject
 
-    zodiac_type = "Sidereal" if system == "vedic" else "Tropic"
+    zodiac_type = "Sidereal" if system == "vedic" else "Tropical"
     sidereal_mode = "LAHIRI" if system == "vedic" else None
 
     kwargs: dict[str, Any] = {

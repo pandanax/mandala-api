@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mandala.verticals.client_knowledge import AGENT_CARD_NATAL_CHART_TEXT
+from mandala.verticals.client_knowledge import AGENT_CARD_NATAL_CHART_DATA
 from mandala.verticals.post_intake_offers import post_intake_completion_message
 
 
@@ -15,9 +15,10 @@ def test_astrology_without_natal_has_core_buttons() -> None:
 
 
 def test_astrology_with_natal_shows_theme_row() -> None:
+    # «Карта есть» = есть РАССЧИТАННЫЕ данные (Swiss Ephemeris), не LLM-текст.
     m = post_intake_completion_message(
         "astrology",
-        {AGENT_CARD_NATAL_CHART_TEXT: "краткая карта"},
+        {AGENT_CARD_NATAL_CHART_DATA: {"sun_sign": "Рыбы", "moon_sign": "Стрелец"}},
     )
     flat = [c.get("callback_data") for row in (m.buttons or []) for c in row]
     assert "mdl:th_fin" in flat

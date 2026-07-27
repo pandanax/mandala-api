@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from mandala.domain.contracts import OutboundMessage
-from mandala.verticals.client_knowledge import AGENT_CARD_NATAL_CHART_TEXT
+from mandala.verticals.client_knowledge import AGENT_CARD_NATAL_CHART_DATA
 from mandala.verticals.quick_actions import PREMIUM_BUTTON_CALLBACK
 
 
@@ -34,7 +34,9 @@ def post_intake_completion_message(vertical_id: str, agent_card: dict[str, Any])
 
 
 def _astrology_completion(agent_card: dict[str, Any]) -> OutboundMessage:
-    has_natal = bool((agent_card or {}).get(AGENT_CARD_NATAL_CHART_TEXT))
+    # «Карта уже есть» = есть РАССЧИТАННЫЕ данные (Swiss Ephemeris), а не сохранённый
+    # LLM-текст: карту строит только математика.
+    has_natal = bool((agent_card or {}).get(AGENT_CARD_NATAL_CHART_DATA))
     base_intro = (
         "Спасибо, анкета сохранена: имя, дата, место и время рождения учтены.\n\n"
         "Выберите действие кнопкой ниже или напишите свой вопрос текстом."

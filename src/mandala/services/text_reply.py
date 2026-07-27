@@ -54,7 +54,6 @@ from mandala.verticals import get_vertical_system_prompt
 from mandala.verticals.client_knowledge import (
     AGENT_CARD_ASTRO_SYSTEM,
     AGENT_CARD_NATAL_CHART_DATA,
-    AGENT_CARD_NATAL_CHART_TEXT,
     split_llm_agent_card_suffix,
 )
 
@@ -97,6 +96,34 @@ def _close_client_if_any(client: object) -> None:
     closer = getattr(client, "close", None)
     if callable(closer):
         closer()
+
+
+_NATAL_NO_MATH_INSTRUCTION = (
+    "ВНИМАНИЕ: рассчитанной натальной карты сейчас НЕТ. Не выдумывай, не вычисляй и не "
+    "воспроизводи по памяти положения планет, дома или асцендент — это делает только "
+    "математический движок (Swiss Ephemeris), не ты. Если пользователь просит натальную "
+    "карту, честно скажи, что карту нужно рассчитать, и предложи проверить/уточнить дату, "
+    "время и город рождения (кнопка «Натальная карта»). Общие темы (транзиты, сезонные "
+    "ритмы, Карта судьбы) отвечать можно."
+)
+
+
+def build_natal_prompt_section(natal_data: object) -> str:
+    """Секция system-промпта про натальную карту.
+
+    Единственный источник карты — математика (Swiss Ephemeris). Если переданы
+    рассчитанные данные (dict от :func:`mandala.astro.natal_chart.calculate_natal_chart`),
+    возвращает блок РАССЧИТАННОЙ карты; иначе — явный запрет выдумывать/пересчитывать
+    карту. НИКОГДА не подставляет сюда LLM-текст: раньше при отсутствии математики в
+    промпт уходил сохранённый LLM-текст карты, что и порождало выдуманные позиции
+    «между школами» (жалоба пользователя). Лучше честно не строить, чем выдать выдуманную.
+    """
+    if isinstance(natal_data, dict) and natal_data:
+        try:
+            return natal_chart_to_system_text(natal_data)
+        except Exception:
+            logger.warning("failed to format natal_chart_data for system prompt", exc_info=True)
+    return _NATAL_NO_MATH_INSTRUCTION
 
 
 def _message_rows_to_chat_messages(rows_newest_first: list[MessageDTO]) -> list[ChatMessage]:
@@ -212,22 +239,12 @@ def handle_inbound_text_llm(
             "сравнения» и не выдумывай знаки/градусы — используй только рассчитанные "
             "значения из блоков натальной карты и транзитов ниже."
         )
-        if isinstance(natal_data, dict) and natal_data:
-            try:
-                natal_block = natal_chart_to_system_text(natal_data)
-                system_prompt = f"{system_prompt}\n\n{natal_block}"
-            except Exception:
-                logger.warning("failed to format natal_chart_data for system prompt", exc_info=True)
-        # Приоритет 2: сохранённый LLM-текст карты (если математика недоступна)
-        elif (
-            isinstance(natal_raw := card.get(AGENT_CARD_NATAL_CHART_TEXT), str)
-            and natal_raw.strip()
-        ):
-            snippet = natal_raw.strip()[:3500]
-            system_prompt = (
-                f"{system_prompt}\n\nСохранённая натальная карта клиента "
-                f"(опирайся на неё; не копируй целиком без запроса):\n{snippet}"
-            )
+        # Единственный источник натальной карты — математика (Swiss Ephemeris,
+        # см. astro.natal_chart). Если рассчитанных данных нет — карту НЕ выдаём как
+        # факт и НЕ даём модели её сочинить (раньше сюда подставлялся сохранённый
+        # LLM-текст карты — путь, который порождал выдуманные позиции «между школами»,
+        # ровно жалоба пользователя). Лучше честно не строить, чем выдать выдуманную.
+        system_prompt = f"{system_prompt}\n\n{build_natal_prompt_section(natal_data)}"
         # Текущие транзиты — актуальные позиции планет для прогнозов
         try:
             now_utc = datetime.now(tz=UTC)

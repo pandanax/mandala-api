@@ -231,6 +231,21 @@ def _try_calculate_and_save_natal_chart(
                 "Попробуйте указать ближайший крупный город или уточните название "
                 "(напишите /reset и заполните анкету заново)."
             )
+        if "Timezone" in err_msg:
+            # Время рождения — местное; без часового пояса места его нельзя корректно
+            # перевести в UT. НЕ строим карту молча в UTC (это и была жалоба) — честно
+            # эскалируем пользователю, чтобы уточнил место.
+            logger.warning(
+                "natal chart timezone lookup failed place=%r user_id=%s: %s",
+                birth_place,
+                user_id,
+                err_msg,
+            )
+            return (
+                f"⚠️ Не удалось определить часовой пояс места «{birth_place}» — "
+                "без него нельзя точно рассчитать карту по местному времени рождения. "
+                "Уточните ближайший крупный город (напишите /reset и заполните анкету заново)."
+            )
         logger.warning("natal chart calculation failed user_id=%s", user_id, exc_info=True)
         return None
     except Exception:
