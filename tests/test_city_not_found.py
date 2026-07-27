@@ -32,7 +32,8 @@ def test_city_not_found_returns_user_message() -> None:
 
     assert result is not None
     assert "Урюпинск_Xyz_Notexist" in result
-    assert "/reset" in result
+    # UX-апгрейд: правка данных теперь через профиль (/profile → «Редактировать»), не /reset.
+    assert "профил" in result.lower()
     profiles.merge_agent_card.assert_not_called()
 
 
@@ -57,7 +58,7 @@ def test_geocoding_failed_returns_user_message() -> None:
         )
 
     assert result is not None
-    assert "/reset" in result
+    assert "профил" in result.lower()
 
 
 def test_other_error_returns_none() -> None:

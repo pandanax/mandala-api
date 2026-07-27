@@ -88,15 +88,17 @@ def test_burger_menu_contains_natal_and_forecast() -> None:
     assert "forecast" in names
 
 
-def test_burger_command_recognizes_natal_and_forecast() -> None:
+def test_burger_command_recognizes_forecast_only() -> None:
     from mandala.domain.handler import _burger_nav_command
 
     assert _burger_nav_command("astrology", "/forecast") == "forecast"
-    assert _burger_nav_command("astrology", "/natal") == "natal"
-    assert _burger_nav_command("astrology", "/natal@MandalaBot") == "natal"
+    assert _burger_nav_command("astrology", "/forecast@MandalaBot") == "forecast"
+    # /natal и /matrix — мгновенный рендер из БД в scenario_intake, а НЕ бургер-LLM.
+    assert _burger_nav_command("astrology", "/natal") is None
+    assert _burger_nav_command("astrology", "/matrix") is None
     # Не бургер-команда / не та вертикаль → None.
     assert _burger_nav_command("astrology", "расскажи про мою луну") is None
-    assert _burger_nav_command("therapy", "/natal") is None
+    assert _burger_nav_command("therapy", "/forecast") is None
 
 
 def test_forecast_burger_command_shows_period_menu(monkeypatch) -> None:  # type: ignore[no-untyped-def]

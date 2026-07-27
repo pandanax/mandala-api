@@ -12,7 +12,12 @@ from sqlalchemy.engine import Engine
 from mandala.db.engine import create_engine_from_env
 from mandala.domain import InboundEvent, OutboundMessage, handle_inbound
 from mandala.repositories import ProfileRepository
-from mandala.services.scenario_intake import KEY_INTAKE_COMPLETE, KEY_INTAKE_STEP_INDEX
+from mandala.services.intake_flow import (
+    CB_CONFIRM,
+    CB_SAVE,
+    KEY_INTAKE_COMPLETE,
+    KEY_INTAKE_STEP_INDEX,
+)
 from mandala.services.user_identity import UserIdentityService
 
 pytestmark = [
@@ -98,7 +103,7 @@ def test_therapy_and_astrology_first_prompts_differ(engine: Engine) -> None:
 
 
 def test_full_intake_then_messages_in_db(engine: Engine) -> None:
-    """После всех валидных шагов астрологии — анкета закрыта, в ``messages`` есть ответы."""
+    """Пофазовый сбор: ввод → подтверждение поля → сводка → сохранение; карта в БД."""
     ext = f"intake-full-{uuid4()}"
     v = "astrology"
 
@@ -112,20 +117,35 @@ def test_full_intake_then_messages_in_db(engine: Engine) -> None:
         with engine.begin() as conn:
             return handle_inbound(ev, conn, llm_client=_Stub())
 
-    # full_name -> birth_date -> birth_place -> birth_time
+    # Каждое поле: ввод → эхо «… Верно?» → подтверждение продвигает к следующему.
     out_name = run("Иван Иванов")
-    name_text = (out_name[0].text or "").lower()
-    assert "дат" in name_text or "дд.мм" in name_text
-    out_date = run("17.03.1992")
-    date_text = (out_date[0].text or "").lower()
-    assert "город" in date_text or "место" in date_text
-    out_place = run("Москва")
-    place_text = (out_place[0].text or "").lower()
-    assert "время" in place_text or "чч:мм" in place_text
-    out_time = run("14:05")
-    time_text = (out_time[0].text or "").lower()
-    assert "анкета" in time_text or "сохран" in time_text or "кнопк" in time_text
-    assert out_time[0].buttons
+    assert "верно" in (out_name[0].text or "").lower()
+    assert out_name[0].buttons
+    out_after_name = run(CB_CONFIRM)
+    assert "дат" in (out_after_name[0].text or "").lower()
+
+    run("17.03.1992")
+    out_after_date = run(CB_CONFIRM)
+    assert (
+        "город" in (out_after_date[0].text or "").lower()
+        or "мест" in (out_after_date[0].text or "").lower()
+    )
+
+    run("Москва")  # геокодер резолвит город на этапе валидации места
+    out_after_place = run(CB_CONFIRM)
+    assert (
+        "время" in (out_after_place[0].text or "").lower()
+        or "чч:мм" in (out_after_place[0].text or "").lower()
+    )
+
+    run("14:05")
+    out_summary = run(CB_CONFIRM)  # последний confirm → сводка всей анкеты
+    assert "проверьте" in (out_summary[0].text or "").lower()
+    assert out_summary[0].buttons
+
+    out_saved = run(CB_SAVE)
+    assert "сохран" in (out_saved[0].text or "").lower()
+    assert out_saved[0].buttons
 
     with engine.begin() as conn:
         uid = UserIdentityService(conn).get_or_create_user(
@@ -149,6 +169,9 @@ def test_full_intake_then_messages_in_db(engine: Engine) -> None:
     assert prof.agent_card.get("full_name") == "Иван Иванов"
     assert prof.agent_card.get("birth_date") == "17.03.1992"
     assert prof.agent_card.get("birth_place") == "Москва"
+    # Карта и Матрица Судьбы посчитаны и сохранены при сохранении профиля.
+    assert isinstance(prof.agent_card.get("natal_chart_data"), dict)
+    assert isinstance(prof.agent_card.get("destiny_matrix_data"), dict)
     assert n_msg >= 4
 
 
@@ -162,12 +185,16 @@ def test_reset_command_clears_profile_and_messages(engine: Engine) -> None:
         with engine.begin() as conn:
             return handle_inbound(ev, conn, llm_client=_Stub())
 
-    # Прогоняем анкету целиком
+    # Прогоняем анкету целиком (ввод → подтверждение поля → … → сводка → сохранить).
     run("Иван Иванов")
+    run(CB_CONFIRM)
     run("17.03.1992")
+    run(CB_CONFIRM)
     run("Москва")
+    run(CB_CONFIRM)
     run("14:05")
-    run("Свободный вопрос астрологу")
+    run(CB_CONFIRM)
+    run(CB_SAVE)
 
     with engine.begin() as conn:
         uid = UserIdentityService(conn).get_or_create_user(

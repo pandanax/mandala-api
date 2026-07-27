@@ -25,6 +25,7 @@ _DEFAULT_BASE = "https://api.telegram.org"
 # статические сервисные действия (см. docs/agent.md).
 BOT_COMMANDS: list[tuple[str, str]] = [
     ("natal", "Натальная карта"),
+    ("matrix", "Матрица судьбы"),
     ("forecast", "Прогноз"),
     ("profile", "Мой профиль"),
     ("start", "Начать заново"),

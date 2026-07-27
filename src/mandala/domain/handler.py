@@ -122,28 +122,13 @@ def handle_inbound(
         )
         return ensure_nav(text_result, event.vertical_id)
 
-    # Бургер-команды навигации astrology: «Натальная карта» (/natal) и «Прогноз»
-    # (/forecast) переехали из inline-кнопок в меню (setMyCommands). Обрабатываем их
-    # ДО анкеты — как навигацию: /forecast → подменю периодов; /natal → разбор карты
-    # обычным LLM-ходом (минуя анкету, как клик по бывшей кнопке «Натальная карта»).
+    # Бургер-команда навигации astrology «Прогноз» (/forecast) → подменю периодов,
+    # обрабатываем ДО анкеты. «Натальная карта» (/natal) и «Карта судьбы» (/matrix)
+    # теперь мгновенный детерминированный рендер из БД — их обрабатывает
+    # ``handle_intake_before_llm`` как служебные команды (без LLM).
     burger = _burger_nav_command(event.vertical_id, event.text)
     if burger == "forecast":
         return _handle_forecast_menu()
-    if burger == "natal":
-        natal_query = expand_inbound_quick_action(event.vertical_id, "mdl:natal")
-        raw_summary_natal = profile.scenario_state.get("dialog_summary")
-        summary_natal = raw_summary_natal.strip() if isinstance(raw_summary_natal, str) else None
-        natal_event = event.model_copy(update={"text": natal_query})
-        text_result = handle_inbound_text_llm(
-            conn,
-            natal_event,
-            uid,
-            llm_client=llm_client,
-            kb_search=kb_search,
-            dialog_summary=summary_natal,
-            agent_card=profile.agent_card,
-        )
-        return ensure_nav(text_result, event.vertical_id)
 
     intake_out = handle_intake_before_llm(conn, event, uid, profile)
     if intake_out is not None:
@@ -249,14 +234,16 @@ def handle_inbound(
     return ensure_nav(text_result, event.vertical_id)
 
 
-# Бургер-команды навигации (setMyCommands) → внутренний код. Только astrology.
-_BURGER_NAV_COMMANDS = {"/natal": "natal", "/forecast": "forecast"}
+# Бургер-команда навигации (setMyCommands) → внутренний код. Только astrology.
+# ``/natal`` / ``/matrix`` здесь НЕ обрабатываются — это мгновенный рендер из БД
+# в ``scenario_intake`` (без LLM); тут остаётся только меню прогноза.
+_BURGER_NAV_COMMANDS = {"/forecast": "forecast"}
 
 
 def _burger_nav_command(vertical_id: str, text: str | None) -> str | None:
-    """Распознать бургер-команду навигации ``/natal`` / ``/forecast`` (форма ``/cmd@bot`` тоже).
+    """Распознать бургер-команду навигации ``/forecast`` (форма ``/cmd@bot`` тоже).
 
-    Возвращает ``"natal"`` / ``"forecast"`` для astrology, иначе ``None``.
+    Возвращает ``"forecast"`` для astrology, иначе ``None``.
     """
     if vertical_id.strip() != "astrology" or not text:
         return None

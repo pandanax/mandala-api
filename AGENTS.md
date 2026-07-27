@@ -74,6 +74,41 @@ LLM-generated navigation. The model appends a machine block at the very end of i
   lingering sticky keyboard for existing users (stateless, no extra bubble). Lingering
   keyboard taps still resolve via `_KEYBOARD_TEXT_TO_CODE` in `quick_actions.py`.
 
+### Intake: per-field confirm → whole-form confirm → save (draft state machine)
+
+The questionnaire is a **pure state machine** in `services/intake_flow.py` (`step_intake`,
+no DB/network) driven by the DB wrapper `services/scenario_intake.py`. Every field is
+**echoed for confirmation** ([Верно ✅]/[Исправить ✏️]); confirmed values live in a
+**draft** in `scenario_state` (`intake_draft`), NOT in `agent_card`. Only after the
+**whole-form summary** is confirmed ([Подтвердить и сохранить ✅]) does the wrapper write
+the profile and **synchronously compute + save the natal chart (Swiss Ephemeris) and the
+Destiny Matrix**. `agent_card` key for the matrix: `AGENT_CARD_DESTINY_MATRIX_DATA`.
+
+- **Schema v2** (`INTAKE_SCHEMA_VERSION`, phases `input`/`field_confirm`/`form_confirm`/
+  `field_pick`). Existing users don't break: completed (`intake_complete` + no phase) →
+  wrapper returns `None` → straight to LLM; in-progress v1 → draft seeded from `agent_card`.
+  The wrapper gate is: active phase OR not-complete OR an `mdl:intake:*`/`mdl:profile:edit`
+  callback; otherwise pass-through.
+- **Place validation resolves the city at the step** (geocoder + timezone), not at save —
+  the injected `resolve_place` (wraps `astro.natal_chart._geocode_city`) raises
+  `PlaceResolveError` and the answer is re-asked before anything is saved. Mock the geocoder
+  offline (see `tests/test_intake_ux_wrapper.py`).
+- **Editing** (`/profile` → «Редактировать» = `mdl:profile:edit`, or «Изменить» from the
+  summary) runs the same flow (`field_pick` → single field → back to summary → re-save +
+  recompute). `build_profile_message` carries the edit button.
+- **Instant renders (no LLM):** `/natal` and `/matrix` render saved data via
+  `services/chart_render.py` (deterministic); they compute+save on the fly if missing.
+  `/natal`+`/matrix` are handled as commands in `scenario_intake` (NOT the LLM burger path —
+  `_burger_nav_command` only does `/forecast` now). `/matrix` is in the bot menu.
+- **Nav on EVERY message** (incl. errors, promo, confirmations): interactive steps set their
+  own buttons in `intake_flow`; the wrapper's `_guarantee_all_nav` attaches a fallback to any
+  remaining button-less message (stricter than `ensure_nav`, which only touches the terminal).
+- **Callback codes** (`intake_flow`): `mdl:intake:ok|redo|save|edit|restart|cancel|all`,
+  `mdl:intake:f:<field>`, `mdl:profile:edit`. They arrive as `event.text` and are routed
+  inside `handle_intake_before_llm` before step validation.
+- Tests (offline, geocoder mocked): `tests/test_intake_flow_core.py` (pure core) +
+  `tests/test_intake_ux_wrapper.py` (full flow with in-memory repos + real chart/matrix math).
+
 ### Local toolchain note
 
 Deps are locked in `uv.lock` (numpy 2.4.4, mypy 1.20.2). A plain `pip install -e ".[dev]"`

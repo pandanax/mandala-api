@@ -10,19 +10,32 @@ from __future__ import annotations
 from typing import Any
 
 from mandala.domain.contracts import OutboundMessage
+from mandala.services.intake_flow import CB_PROFILE_EDIT
 from mandala.verticals.client_knowledge import (
     AGENT_CARD_ASTRO_SYSTEM,
+    AGENT_CARD_DESTINY_MATRIX_DATA,
     AGENT_CARD_NATAL_CHART_DATA,
 )
+
+
+def _btn(label: str, callback_data: str) -> dict[str, str]:
+    return {"text": label, "callback_data": callback_data}
+
+
+def _profile_buttons(vertical_id: str) -> list[list[dict[str, str]]]:
+    """Кнопка «Редактировать» (тот же флоу правки) + быстрый доступ к карте/матрице."""
+    rows: list[list[dict[str, str]]] = [[_btn("✏️ Редактировать", CB_PROFILE_EDIT)]]
+    if vertical_id.strip() == "astrology":
+        rows.append([_btn("🪐 Натальная карта", "/natal"), _btn("🌌 Карта судьбы", "/matrix")])
+    return rows
 
 
 def build_profile_message(vertical_id: str, agent_card: dict[str, Any]) -> OutboundMessage:
     """Собрать сообщение «Ваш профиль» из ``agent_card``.
 
-    Инлайн-навигация под сообщением добавляется вызывающим кодом
-    (:func:`mandala.services.nav_guarantee.ensure_nav`); постоянной нижней
-    reply-клавиатуры больше нет. Профиль/сброс/help живут в бургер-меню, поэтому
-    здесь только показ данных и подсказка по сбросу.
+    Под профилем — инлайн-кнопка «Редактировать» (запускает стандартный флоу правки
+    по полям с подтверждениями) и быстрый доступ к натальной карте / Карте судьбы.
+    Постоянной нижней reply-клавиатуры нет.
     """
     lines: list[str] = ["👤 **Ваш профиль**", ""]
 
@@ -54,6 +67,15 @@ def build_profile_message(vertical_id: str, agent_card: dict[str, Any]) -> Outbo
         if calc_at:
             lines.append(f"  📐 Рассчитано: {str(calc_at)[:10]}")
 
+    matrix_data = agent_card.get(AGENT_CARD_DESTINY_MATRIX_DATA)
+    if isinstance(matrix_data, dict) and matrix_data:
+        comfort = matrix_data.get("comfort_zone")
+        comfort_s = (
+            f"{comfort.get('n')} ({comfort.get('name')})" if isinstance(comfort, dict) else "?"
+        )
+        lines.append("")
+        lines.append(f"🌌 **Карта судьбы рассчитана** — зона комфорта: {comfort_s} (/matrix)")
+
     promo = agent_card.get("activated_promo")
     if isinstance(promo, str) and promo.strip():
         lines.append("")
@@ -62,4 +84,4 @@ def build_profile_message(vertical_id: str, agent_card: dict[str, Any]) -> Outbo
     lines.append("")
     lines.append("Полный сброс данных — команда /reset (в меню бота).")
 
-    return OutboundMessage(text="\n".join(lines))
+    return OutboundMessage(text="\n".join(lines), buttons=_profile_buttons(vertical_id))

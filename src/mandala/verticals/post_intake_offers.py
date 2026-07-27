@@ -44,10 +44,11 @@ def _astrology_completion(agent_card: dict[str, Any]) -> OutboundMessage:
     if has_natal:
         text = (
             f"{base_intro}\n\n"
-            "У меня уже есть сохранённая натальная карта — можно углубиться по темам "
-            "или взять прогноз."
+            "Натальная карта и Карта судьбы рассчитаны — откройте их мгновенно кнопками "
+            "ниже, углубитесь по темам или возьмите прогноз."
         )
         buttons: list[list[dict[str, str]]] = [
+            [_btn("🪐 Натальная карта", "/natal"), _btn("🌌 Карта судьбы", "/matrix")],
             [
                 _btn("Финансы и ресурс", "mdl:th_fin"),
                 _btn("Отношения", "mdl:th_rel"),
@@ -67,7 +68,8 @@ def _astrology_completion(agent_card: dict[str, Any]) -> OutboundMessage:
     else:
         text = base_intro
         buttons = [
-            [_btn("Натальная карта", "mdl:natal")],
+            [_btn("🪐 Натальная карта", "/natal"), _btn("🌌 Карта судьбы", "/matrix")],
+            [_btn("Разбор карты (ИИ)", "mdl:natal")],
             [
                 _btn("Прогноз на сегодня", "mdl:fc_today"),
                 _btn("Прогноз на неделю", "mdl:fc_week"),

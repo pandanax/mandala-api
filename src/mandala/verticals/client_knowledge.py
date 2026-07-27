@@ -14,6 +14,10 @@ AGENT_CARD_NATAL_CHART_TEXT = "natal_chart_text"
 # Ключ в ``agent_card``: математически рассчитанная натальная карта (dict от astro.natal_chart).
 AGENT_CARD_NATAL_CHART_DATA = "natal_chart_data"
 
+# Ключ в ``agent_card``: рассчитанная Матрица Судьбы (dict от astro.destiny_matrix).
+# Считается и сохраняется при сохранении профиля; ``/matrix`` рендерит её мгновенно из БД.
+AGENT_CARD_DESTINY_MATRIX_DATA = "destiny_matrix_data"
+
 # Ключ в ``agent_card``: активная система (western/vedic).
 AGENT_CARD_ASTRO_SYSTEM = "astro_system"
 
