@@ -59,8 +59,14 @@
 
 - `build_pack_invoice_message(pack_id)` → `OutboundMessage.invoice` (`StarsInvoice`, валюта
   `XTR`, пустой `provider_token`, терминальное сообщение).
-- `build_packs_picker_message(text=…)` → одно сообщение с тремя кнопками пакетов
-  (`mdl:pack:<id>`).
+- `build_packs_picker_message(text=…, balance=…, unlimited=…)` → одно сообщение с тремя
+  кнопками пакетов (`mdl:pack:<id>`). Если явный `text` не задан, а переданы
+  `balance`/`unlimited` — над предложением выбрать пакет добавляется строка текущего
+  баланса («💬 У тебя сейчас: N сообщений» / «∞ (безлимит)» под промо).
+- `build_packs_picker_with_balance(conn, user_id=…, vertical_id=…)` — **единый** способ
+  открыть «Купить сообщения»: сам читает промо (`is_promo_active`) и баланс
+  (`WalletRepository.get_balance`) и строит пикер с шапкой-балансом. Используется и из
+  `/topup`, и из инлайн-кнопки `mdl:packs`.
 - Доставка — `outbound_send.deliver_outbound_messages` → `bot_api.send_invoice`.
 - Хелперы/парсинг callback — `verticals/quick_actions.py`
   (`PACKS_MENU_CALLBACK=mdl:packs`, `pack_callback`, `parse_pack_callback`, `is_packs_menu`;
@@ -78,15 +84,21 @@
 
 ## Где показывается пикер пакетов
 
-- `/topup` (`scenario_intake.py`);
+- `/topup` (`scenario_intake.py`) — команда бургер-меню называется **«Купить сообщения»**
+  (бывш. «Тарифы», см. `bot_commands.py`); открывает пикер с шапкой-балансом.
 - кнопка «💬 Купить сообщения» в `verticals/post_intake_offers.py` (`mdl:packs`);
 - ветка исчерпанного баланса в `services/text_reply.py`.
 - Ветка картинок (`image_reply.py`) показывает нейтральное «картинки недоступны» **без** CTA
   на покупку (пакеты — это текстовые кредиты, картинки ими не открываются).
 
 Callback-и пакетов маршрутизируются в `domain/handler.py` (`_route_message_packs`, до
-раскрытия quick-action). Профиль (`services/profile_view.py`) показывает «Осталось
-сообщений: N» (∞ под промо).
+раскрытия quick-action).
+
+**Где виден баланс.** Актуальный баланс показывается в шапке пикера «Купить сообщения»
+(`/topup` / `mdl:packs`) и через `/promo` (для промо — «∞ безлимит»). Карточка `/profile`
+баланс **больше не дублирует** — она содержит только данные анкеты (см.
+[product.md](product.md) и `services/profile_view.py`: аргумент `message_balance` оставлен в
+сигнатуре для совместимости, но в тело не рендерится).
 
 ## Наследие месячной модели (не удалено, но не используется)
 
