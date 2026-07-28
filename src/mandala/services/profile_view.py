@@ -57,7 +57,7 @@ def build_profile_message(vertical_id: str, agent_card: dict[str, Any]) -> Outbo
     natal_data = agent_card.get(AGENT_CARD_NATAL_CHART_DATA)
     if isinstance(natal_data, dict) and natal_data:
         lines.append("")
-        lines.append("🪐 **Рассчитанная натальная карта:**")
+        lines.append("🪐 **Натальная карта рассчитана** — открыть: /natal")
         lines.append(f"  ☀️ Солнце: {natal_data.get('sun_sign', '?')}")
         lines.append(f"  🌙 Луна: {natal_data.get('moon_sign', '?')}")
         asc = natal_data.get("ascendant")
