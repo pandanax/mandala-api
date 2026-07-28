@@ -736,6 +736,25 @@ def _greeting_then_intake(greeting: str, prompt: str) -> list[OutboundMessage]:
     return out
 
 
+def _already_completed_menu(
+    conn: Connection, user_id: UUID, vertical_id: str, greeting: str
+) -> list[OutboundMessage]:
+    """Меню «Анкета уже заполнена» — без побочных эффектов.
+
+    Единый источник для завершённых пользователей: и info-команды, и /start
+    (мягкий рестарт) при `intake_complete` показывают это меню, НЕ пересоздавая
+    анкету и НЕ трогая scenario_state/agent_card.
+    """
+    fresh = ProfileRepository(conn).get_by_user_id(user_id)
+    ac = dict(fresh.agent_card) if fresh else {}
+    follow = post_intake_completion_message(vertical_id, ac)
+    body = (
+        f"{greeting}\n\nАнкета уже заполнена. Выберите действие кнопкой "
+        "или напишите запрос текстом."
+    ).rstrip()
+    return [OutboundMessage(text=body, buttons=follow.buttons)]
+
+
 def _fresh_intake_state_patch() -> dict[str, Any]:
     """Патч состояния для перезапуска анкеты (мягкий рестарт / hard reset после сброса)."""
     return {
@@ -817,21 +836,19 @@ def _handle_command(
         return _greeting_then_intake(welcome, first_prompt)
 
     if command in _SOFT_RESTART_COMMANDS:
+        # /start (и /restart) — «старт в начале один раз». Если анкета уже
+        # завершена (профиль + наталка/матрица в agent_card), НЕ пересоздаём
+        # её и не сбрасываем scenario_state — просто показываем меню. Полный
+        # сброс — только /reset (_HARD_RESET_COMMANDS выше).
+        if intake_complete:
+            return _already_completed_menu(conn, user_id, event.vertical_id, greeting)
         ProfileRepository(conn).merge_scenario_state(user_id, _fresh_intake_state_patch())
         first_prompt = steps[0].prompt if steps else ""
         return _greeting_then_intake(greeting, first_prompt)
 
     # info-команды: без побочных эффектов
     if intake_complete:
-        profiles_repo = ProfileRepository(conn)
-        fresh = profiles_repo.get_by_user_id(user_id)
-        ac = dict(fresh.agent_card) if fresh else {}
-        follow = post_intake_completion_message(event.vertical_id, ac)
-        body = (
-            f"{greeting}\n\nАнкета уже заполнена. Выберите действие кнопкой "
-            "или напишите запрос текстом."
-        ).rstrip()
-        return [OutboundMessage(text=body, buttons=follow.buttons)]
+        return _already_completed_menu(conn, user_id, event.vertical_id, greeting)
 
     raw_idx = state.get(KEY_INTAKE_STEP_INDEX, 0)
     try:

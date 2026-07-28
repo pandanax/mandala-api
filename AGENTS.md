@@ -192,6 +192,15 @@ Destiny Matrix**. `agent_card` key for the matrix: `AGENT_CARD_DESTINY_MATRIX_DA
 - **Nav on EVERY message** (incl. errors, promo, confirmations): interactive steps set their
   own buttons in `intake_flow`; the wrapper's `_guarantee_all_nav` attaches a fallback to any
   remaining button-less message (stricter than `ensure_nav`, which only touches the terminal).
+- **`/start` is a one-time kickoff, not a reset** (`scenario_intake._handle_command`,
+  `_SOFT_RESTART_COMMANDS`). On a **completed** profile (`intake_complete`), `/start` and
+  `/restart` show the «Анкета уже заполнена…» menu (`_already_completed_menu`, shared with the
+  info-command branch) — they do NOT reopen the questionnaire or touch `scenario_state`/
+  `agent_card` (the saved natal/matrix stay intact). Only on a new/unfinished profile does
+  `/start` (re)start intake from the first question. **`/reset` (`_HARD_RESET_COMMANDS`) is the
+  ONLY full wipe** (`reset_session` + delete messages; still preserves `activated_promo`+balance).
+  Regression: `tests/test_intake_ux_wrapper.py` (start/restart-on-completed → menu, new user →
+  intake, reset → full wipe).
 - **Callback codes** (`intake_flow`): `mdl:intake:ok|redo|save|edit|restart|cancel|all`,
   `mdl:intake:f:<field>`, `mdl:profile:edit`. They arrive as `event.text` and are routed
   inside `handle_intake_before_llm` before step validation.

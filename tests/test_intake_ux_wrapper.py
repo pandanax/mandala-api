@@ -313,3 +313,75 @@ def test_legacy_completed_user_can_start_edit(store: dict[str, Any]) -> None:
     _assert_all_have_buttons(out)
     codes = [c.get("callback_data", "") for m in out for row in (m.buttons or []) for c in row]
     assert f"{CB_FIELD_PREFIX}full_name" in codes
+
+
+def test_start_on_completed_profile_shows_menu_not_reintake(store: dict[str, Any]) -> None:
+    """Баг капитана: завершил профиль → жмёт /start → анкета открывалась заново.
+
+    Теперь /start при завершённой анкете = меню «Анкета уже заполнена…», БЕЗ
+    сброса scenario_state и БЕЗ повторного вопроса; наталка/матрица в agent_card целы.
+    """
+    uid = _seed_user(store)
+    with patch(_GEO, return_value=_MOSCOW):
+        _drive_full_intake(store, uid)
+
+    ac_before = dict(store["profiles"][uid]["agent_card"])
+    state_before = dict(store["profiles"][uid]["scenario_state"])
+    assert isinstance(ac_before.get(AGENT_CARD_NATAL_CHART_DATA), dict)
+
+    out = _run(store, uid, "/start")
+    _assert_all_have_buttons(out)
+
+    # Меню «уже заполнено», а не вопрос анкеты.
+    assert any("анкета уже заполнена" in (m.text or "").lower() for m in out)
+    prompts = " ".join((m.text or "") for m in out).lower()
+    assert "как вас зовут" not in prompts and "имя" not in prompts
+
+    # scenario_state НЕ сброшен — анкета остаётся завершённой.
+    state_after = store["profiles"][uid]["scenario_state"]
+    assert state_after.get(KEY_INTAKE_COMPLETE) is True
+    assert state_after == state_before
+    # agent_card (наталка/матрица) не тронут.
+    assert store["profiles"][uid]["agent_card"] == ac_before
+
+
+def test_restart_on_completed_profile_shows_menu(store: dict[str, Any]) -> None:
+    """/restart ведёт себя как /start: завершённый профиль → меню, без переоткрытия."""
+    uid = _seed_user(store)
+    with patch(_GEO, return_value=_MOSCOW):
+        _drive_full_intake(store, uid)
+
+    out = _run(store, uid, "/restart")
+    _assert_all_have_buttons(out)
+    assert any("анкета уже заполнена" in (m.text or "").lower() for m in out)
+    assert store["profiles"][uid]["scenario_state"].get(KEY_INTAKE_COMPLETE) is True
+
+
+def test_start_on_new_user_begins_intake(store: dict[str, Any]) -> None:
+    """Новый/незавершённый пользователь: /start запускает анкету с первого вопроса."""
+    uid = _seed_user(store)
+    out = _run(store, uid, "/start")
+    _assert_all_have_buttons(out)
+    # Есть вопрос анкеты (первый шаг), «уже заполнена» — нет.
+    text = " ".join((m.text or "") for m in out).lower()
+    assert "анкета уже заполнена" not in text
+    assert len(out) >= 2, "ожидались приветствие + первый вопрос анкеты"
+    assert store["profiles"][uid]["scenario_state"].get(KEY_INTAKE_COMPLETE) is not True
+
+
+def test_reset_is_the_only_full_wipe(store: dict[str, Any]) -> None:
+    """/reset — единственный полный сброс: анкета обнулена, сообщения удалены."""
+    uid = _seed_user(store)
+    with patch(_GEO, return_value=_MOSCOW):
+        _drive_full_intake(store, uid)
+    store["messages"] = [{"x": 1}, {"x": 2}]
+
+    out = _run(store, uid, "/reset")
+    _assert_all_have_buttons(out)
+    # Полный сброс: анкета не завершена, наталка стёрта, сообщения удалены.
+    row = store["profiles"][uid]
+    assert row["scenario_state"].get(KEY_INTAKE_COMPLETE) is not True
+    assert AGENT_CARD_NATAL_CHART_DATA not in row["agent_card"]
+    assert store["messages"] == []
+    # Снова задан первый вопрос анкеты.
+    assert len(out) >= 2
