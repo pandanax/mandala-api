@@ -109,6 +109,20 @@ LLM-generated navigation. The model appends a machine block at the very end of i
 - Profile/reset/help live in the burger menu (`setMyCommands` in `bot_commands.py`,
   `/profile` handled in `scenario_intake.py`). The channel-agnostic
   `OutboundMessage.term_links` field carries `{term, payload}`.
+- **Deterministic numerology term linkifier (`/matrix` render).** The `/matrix` render
+  (`chart_render.render_destiny_matrix_*`) never goes through the LLM, so its terms can't rely
+  on the model's nav block. `services/term_linkify.linkify_numerology_terms(text)` closes that
+  gap: it scans a fixed glossary (22 arcana + octagram positions/lines/chakras — source of
+  truth `astro.destiny_matrix.ARCANA_NAMES`/`CHAKRAS_TOP_DOWN`) and returns `(term_links,
+  nav_map)` reusing the SAME scheme as LLM nav (`nav_map` id→«объясни термин X» query, payload
+  `mdlnav_<id>`). `scenario_intake._matrix_message_with_clickable_terms` persists the `nav_map`
+  to `agent_card` and attaches `term_links` — a tap resolves through the existing
+  `resolve_nav_action` → normal LLM turn (explanation + inline nav). Matching is
+  **case-sensitive with Cyrillic word boundaries** (so «Император» ≠ inside «Императрица», short
+  «Суд» ≠ inside «судьбы»), first-occurrence-only (no duplicate links), longest-wins on overlap.
+  Empty result degrades safely (plain text). The prompt (`verticals/prompts.py`) additionally
+  tells the model to mark EVERY numerology term in `terms` for free-form answers. Tests:
+  `tests/test_numerology_clickable_terms.py`.
 - **Inline-only navigation (no persistent reply keyboard).** Every bot answer ends with an
   inline keyboard — the LLM picks it via the nav block above; when the model emits no valid
   nav (bad JSON, non-astrology vertical), `services/nav_guarantee.py` (`ensure_nav`) attaches

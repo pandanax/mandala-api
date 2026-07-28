@@ -48,6 +48,7 @@ from mandala.services.intake_flow import (
 from mandala.services.nav_guarantee import ensure_nav, fallback_nav_buttons
 from mandala.services.profile_view import build_profile_message
 from mandala.services.telegram_stars import build_premium_invoice_message
+from mandala.services.term_linkify import linkify_numerology_terms
 from mandala.verticals.client_knowledge import (
     AGENT_CARD_ASTRO_SYSTEM,
     AGENT_CARD_DESTINY_MATRIX_DATA,
@@ -452,6 +453,24 @@ def _instant_natal(conn: Connection, user_id: UUID) -> list[OutboundMessage]:
     ]
 
 
+def _matrix_message_with_clickable_terms(
+    profiles: ProfileRepository, user_id: UUID, dm: dict[str, Any]
+) -> OutboundMessage:
+    """Рендер Карты судьбы + детерминированная кликабельность нумерологических терминов.
+
+    Рендер ``/matrix`` не проходит через LLM, поэтому термины делаем кликабельными сами:
+    линкифицируем известный глоссарий (:mod:`mandala.services.term_linkify`), кладём
+    ``nav_map`` (id → запрос-объяснение) в ``agent_card`` и вешаем ``term_links`` на
+    сообщение. Клик по термину резолвит :func:`resolve_nav_action` → обычный ход LLM.
+    """
+    msg = render_destiny_matrix_message(dm)
+    term_links, nav_map = linkify_numerology_terms(msg.text or "")
+    if not term_links:
+        return msg
+    profiles.merge_agent_card(user_id, {"nav_map": nav_map})
+    return msg.model_copy(update={"term_links": term_links})
+
+
 def _instant_matrix(conn: Connection, user_id: UUID) -> list[OutboundMessage]:
     """``/matrix``: мгновенный рендер сохранённой Карты судьбы (при отсутствии — пересчёт)."""
     profiles = ProfileRepository(conn)
@@ -459,14 +478,14 @@ def _instant_matrix(conn: Connection, user_id: UUID) -> list[OutboundMessage]:
     ac = dict(fresh.agent_card) if fresh else {}
     dm = ac.get(AGENT_CARD_DESTINY_MATRIX_DATA)
     if isinstance(dm, dict) and dm:
-        return [render_destiny_matrix_message(dm)]
+        return [_matrix_message_with_clickable_terms(profiles, user_id, dm)]
 
     if str(ac.get("birth_date") or "").strip():
         _try_compute_and_save_matrix(user_id=user_id, agent_card=ac, profiles=profiles)
         fresh2 = profiles.get_by_user_id(user_id)
         dm2 = (dict(fresh2.agent_card) if fresh2 else {}).get(AGENT_CARD_DESTINY_MATRIX_DATA)
         if isinstance(dm2, dict) and dm2:
-            return [render_destiny_matrix_message(dm2)]
+            return [_matrix_message_with_clickable_terms(profiles, user_id, dm2)]
 
     return [
         OutboundMessage(
