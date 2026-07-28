@@ -117,11 +117,24 @@ def test_help_message_has_photo_bold_menu_and_inline_nav() -> None:
     assert "**Натальная карта**" in text
     assert "**Карта судьбы**" in text
     assert "**Нумерология**" in text
-    assert "**Команды**" in text
-    # Команды рестарта описаны понятно.
-    assert "/start" in text
-    assert "/reset" in text
-    assert "/numerology" in text
+    assert "**Все команды**" in text
+    # Перечислены ВСЕ 10 команд бота, каждая с описанием.
+    for cmd in (
+        "/natal",
+        "/matrix",
+        "/numerology",
+        "/forecast",
+        "/profile",
+        "/start",
+        "/reset",
+        "/help",
+        "/promo",
+        "/topup",
+    ):
+        assert cmd in text, cmd
+    # /topup описан как покупка сообщений, не «тарифы».
+    assert "купить сообщения" in text.lower()
+    assert "тариф" not in text.lower()
     # Никакого _..._ italic — Telegram-рендер его не поддерживает (потекут подчёркивания).
     assert "_" not in text
     # Постоянной нижней клавиатуры нет; вместо неё — инлайн-навигация под сообщением.
