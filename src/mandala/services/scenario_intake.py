@@ -3,13 +3,13 @@
 Чистое ядро состояний — :mod:`mandala.services.intake_flow` (без БД/сети). Здесь —
 обёртка над БД: применяет патчи ядра, пишет в ``client_profiles`` / ``messages``,
 резолвит город (сеть), при сохранении профиля синхронно считает и сохраняет
-натальную карту (Swiss Ephemeris) и Матрицу Судьбы, и гарантирует инлайн-навигацию
-на каждом ответе.
+натальную карту (Swiss Ephemeris), Матрицу Судьбы и пифагорейскую нумерологию, и
+гарантирует инлайн-навигацию на каждом ответе.
 
 Служебные команды (``/start``, ``/help``, ``/profile``, ``/promo``, ``/topup``,
-``/natal``, ``/matrix``, ``/reset``) перехватываются до валидации шага. ``/natal`` и
-``/matrix`` — мгновенный детерминированный рендер из БД (без LLM), см.
-:mod:`mandala.services.chart_render`.
+``/natal``, ``/matrix``, ``/numerology``, ``/reset``) перехватываются до валидации
+шага. ``/natal``, ``/matrix`` и ``/numerology`` — мгновенный детерминированный рендер
+из БД (без LLM), см. :mod:`mandala.services.chart_render`.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from mandala.repositories.profiles import ClientProfileDTO, ProfileRepository
 from mandala.services.chart_render import (
     render_destiny_matrix_message,
     render_natal_chart_message,
+    render_numerology_message,
 )
 from mandala.services.intake_flow import (
     CB_RESTART,
@@ -54,6 +55,7 @@ from mandala.verticals.client_knowledge import (
     AGENT_CARD_DESTINY_MATRIX_DATA,
     AGENT_CARD_NATAL_CHART_DATA,
     AGENT_CARD_NATAL_WHEEL_FILE_ID,
+    AGENT_CARD_NUMEROLOGY_DATA,
 )
 from mandala.verticals.intake_config import IntakeStep, intake_steps_for_vertical
 from mandala.verticals.post_intake_offers import post_intake_completion_message
@@ -67,9 +69,10 @@ _INFO_COMMANDS = frozenset({"/help", "/about", "/info"})
 _PROMO_COMMANDS = frozenset({"/promo"})
 _TOPUP_COMMANDS = frozenset({"/topup"})
 _PROFILE_COMMANDS = frozenset({"/profile"})
-# Мгновенный рендер из БД (без LLM): натальная карта и Карта судьбы.
+# Мгновенный рендер из БД (без LLM): натальная карта, Карта судьбы, нумерология.
 _NATAL_COMMANDS = frozenset({"/natal"})
 _MATRIX_COMMANDS = frozenset({"/matrix"})
+_NUMEROLOGY_COMMANDS = frozenset({"/numerology"})
 _ALL_COMMANDS = (
     _SOFT_RESTART_COMMANDS
     | _HARD_RESET_COMMANDS
@@ -79,6 +82,7 @@ _ALL_COMMANDS = (
     | _PROFILE_COMMANDS
     | _NATAL_COMMANDS
     | _MATRIX_COMMANDS
+    | _NUMEROLOGY_COMMANDS
 )
 
 
@@ -266,6 +270,7 @@ def _finalize_profile(
             conn=conn, user_id=user_id, agent_card=ac, profiles=profiles
         )
         _try_compute_and_save_matrix(user_id=user_id, agent_card=ac, profiles=profiles)
+        _try_compute_and_save_numerology(user_id=user_id, agent_card=ac, profiles=profiles)
         fresh2 = profiles.get_by_user_id(user_id)
         ac = dict(fresh2.agent_card) if fresh2 else ac
 
@@ -309,6 +314,32 @@ def _try_compute_and_save_matrix(
         logger.info("destiny matrix computed user_id=%s", user_id)
     except Exception:
         logger.warning("destiny matrix computation failed user_id=%s", user_id, exc_info=True)
+
+
+def _try_compute_and_save_numerology(
+    *,
+    user_id: UUID,
+    agent_card: dict[str, Any],
+    profiles: ProfileRepository,
+) -> None:
+    """Посчитать пифагорейскую нумерологию (имя + дата) и сохранить в ``agent_card``.
+
+    В отличие от Матрицы (только дата), использует и ``full_name``, и ``birth_date``.
+    Имя необязательно: без него движок аккуратно деградирует до чисел от даты. Любой
+    сбой некритичен — просто не сохраняем.
+    """
+    birth_date = str(agent_card.get("birth_date") or "").strip()
+    if not birth_date:
+        return
+    full_name = str(agent_card.get("full_name") or "").strip()
+    try:
+        from mandala.astro.numerology import compute_numerology
+
+        data = compute_numerology(full_name, birth_date)
+        profiles.merge_agent_card(user_id, {AGENT_CARD_NUMEROLOGY_DATA: data})
+        logger.info("numerology computed user_id=%s has_name=%s", user_id, data.get("has_name"))
+    except Exception:
+        logger.warning("numerology computation failed user_id=%s", user_id, exc_info=True)
 
 
 def _handle_promo_command(
@@ -490,6 +521,30 @@ def _instant_matrix(conn: Connection, user_id: UUID) -> list[OutboundMessage]:
     return [
         OutboundMessage(
             text="Чтобы построить Карту судьбы, укажите дату рождения в анкете.",
+            buttons=[[_btn("📝 Заполнить анкету", CB_RESTART)]],
+        )
+    ]
+
+
+def _instant_numerology(conn: Connection, user_id: UUID) -> list[OutboundMessage]:
+    """``/numerology``: мгновенный рендер сохранённой нумерологии (при отсутствии — пересчёт)."""
+    profiles = ProfileRepository(conn)
+    fresh = profiles.get_by_user_id(user_id)
+    ac = dict(fresh.agent_card) if fresh else {}
+    data = ac.get(AGENT_CARD_NUMEROLOGY_DATA)
+    if isinstance(data, dict) and data:
+        return [render_numerology_message(data)]
+
+    if str(ac.get("birth_date") or "").strip():
+        _try_compute_and_save_numerology(user_id=user_id, agent_card=ac, profiles=profiles)
+        fresh2 = profiles.get_by_user_id(user_id)
+        data2 = (dict(fresh2.agent_card) if fresh2 else {}).get(AGENT_CARD_NUMEROLOGY_DATA)
+        if isinstance(data2, dict) and data2:
+            return [render_numerology_message(data2)]
+
+    return [
+        OutboundMessage(
+            text="Чтобы рассчитать нумерологию, укажите имя и дату рождения в анкете.",
             buttons=[[_btn("📝 Заполнить анкету", CB_RESTART)]],
         )
     ]
@@ -711,6 +766,9 @@ def _handle_command(
 
     if command in _MATRIX_COMMANDS:
         return _instant_matrix(conn, user_id)
+
+    if command in _NUMEROLOGY_COMMANDS:
+        return _instant_numerology(conn, user_id)
 
     if command in _PROFILE_COMMANDS:
         profiles_repo = ProfileRepository(conn)

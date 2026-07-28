@@ -18,6 +18,11 @@ AGENT_CARD_NATAL_CHART_DATA = "natal_chart_data"
 # Считается и сохраняется при сохранении профиля; ``/matrix`` рендерит её мгновенно из БД.
 AGENT_CARD_DESTINY_MATRIX_DATA = "destiny_matrix_data"
 
+# Ключ в ``agent_card``: рассчитанная пифагорейская нумерология (dict от astro.numerology).
+# Использует ИМЯ + дату рождения (в отличие от Матрицы — только дата). Считается и
+# сохраняется при сохранении профиля; ``/numerology`` рендерит её мгновенно из БД.
+AGENT_CARD_NUMEROLOGY_DATA = "numerology_data"
+
 # Ключ в ``agent_card``: активная система (western/vedic).
 AGENT_CARD_ASTRO_SYSTEM = "astro_system"
 

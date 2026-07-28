@@ -295,11 +295,79 @@ def render_destiny_matrix_message(dm: dict[str, Any]) -> OutboundMessage:
     return OutboundMessage(text=render_destiny_matrix_text(dm), buttons=matrix_nav_buttons())
 
 
+def numerology_nav_buttons() -> list[list[dict[str, str]]]:
+    """Навигация под нумерологией."""
+    return [
+        [_btn("🔮 Разбор нумерологии (ИИ)", "mdl:numerology")],
+        [_btn("🪐 Натальная карта", "/natal"), _btn("🌌 Карта судьбы", "/matrix")],
+        [_btn("📊 Прогноз", "mdl:forecast_menu"), _btn("👤 Профиль", "mdl:profile")],
+    ]
+
+
+# Порядок и подписи чисел для рендера/профиля (роли, не трактовки — их даёт база знаний).
+_NUMEROLOGY_ROWS: tuple[tuple[str, str], ...] = (
+    ("life_path", "🛤️ Жизненный путь"),
+    ("expression", "✨ Выражение (судьба)"),
+    ("soul_urge", "💗 Число души"),
+    ("personality", "🎭 Число личности"),
+    ("birthday", "🎂 День рождения"),
+    ("maturity", "🌟 Число зрелости"),
+)
+
+
+def _num_str(n: object) -> str:
+    """'11 ✦ мастер-число' / '5' / '—' — число для человекочитаемого рендера."""
+    if not isinstance(n, int):
+        return "—"
+    from mandala.astro.numerology import is_master
+
+    return f"{n} ✦ мастер-число" if is_master(n) else str(n)
+
+
+def render_numerology_text(data: dict[str, Any]) -> str:
+    """Человекочитаемый рендер сохранённой нумерологии (без LLM).
+
+    Показываем ЧИСЛА и их роли; их толкование (характер, задачи, смысл мастер-чисел)
+    даёт углублённый разбор через ИИ (кнопка ниже). Устойчив к отсутствию имени —
+    числа имени просто пропускаются.
+    """
+    lines: list[str] = ["🔢 **Ваша нумерология** (пифагорейская)"]
+    name = data.get("full_name")
+    bd = data.get("birth_date")
+    meta = " · ".join(str(x) for x in (name, bd) if x)
+    if meta:
+        lines.append(f"**По имени и дате:** {meta}")
+    raw_numbers = data.get("numbers")
+    numbers: dict[str, Any] = raw_numbers if isinstance(raw_numbers, dict) else {}
+    lines.append("")
+    for key, label in _NUMEROLOGY_ROWS:
+        value = numbers.get(key)
+        if value is None:
+            continue
+        lines.append(f"• {label}: {_num_str(value)}")
+    if not data.get("has_name"):
+        lines.append("")
+        lines.append(
+            "ℹ️ Числа имени (выражение, душа, личность, зрелость) не рассчитаны — "
+            "не указано имя. Добавьте имя в профиль для полного разбора."
+        )
+    lines.append("")
+    lines.append("Нажмите «Разбор нумерологии», чтобы я растолковал числа подробно.")
+    return "\n".join(lines)
+
+
+def render_numerology_message(data: dict[str, Any]) -> OutboundMessage:
+    return OutboundMessage(text=render_numerology_text(data), buttons=numerology_nav_buttons())
+
+
 __all__ = [
     "matrix_nav_buttons",
     "natal_nav_buttons",
+    "numerology_nav_buttons",
     "render_destiny_matrix_message",
     "render_destiny_matrix_text",
     "render_natal_chart_message",
     "render_natal_chart_text",
+    "render_numerology_message",
+    "render_numerology_text",
 ]

@@ -26,6 +26,7 @@ _DEFAULT_BASE = "https://api.telegram.org"
 BOT_COMMANDS: list[tuple[str, str]] = [
     ("natal", "Натальная карта"),
     ("matrix", "Матрица судьбы"),
+    ("numerology", "Нумерология"),
     ("forecast", "Прогноз"),
     ("profile", "Мой профиль"),
     ("start", "Начать заново"),

@@ -204,6 +204,43 @@ second bot/wizard. Authoritative engine: `src/mandala/astro/destiny_matrix.py`.
   chakra map + lines). Same vertical as natal-chart KB — retrieval is semantic, they coexist.
   The prompt (`verticals/prompts.py`) tells the model to offer «Карту судьбы» via nav buttons.
 
+### Numerology («Нумерология») — third capability in the astrology vertical
+
+Классическая (пифагорейская) нумерология is another **separate system**, distinct from both
+astrology and the Destiny Matrix. Its input is **ИМЯ + дата рождения** (letters of the name →
+numbers), where the Matrix uses **date only**. Like the Matrix it's a **capability inside the
+`astrology` vertical** (reuses intake, reply path, LLM-nav) — not a new vertical/bot.
+Authoritative engine: `src/mandala/astro/numerology.py` (`compute_numerology(full_name,
+birth_date)`, `numerology_to_system_text`).
+
+- **Python computes, LLM interprets** (same house rule). Number **meanings** come from the KB
+  (RAG), never hardcoded in the engine. Injected as DATA in `services/text_reply.py` (computed
+  on the fly whenever `birth_date` present; name optional — engine degrades gracefully). agent_card
+  key: `AGENT_CARD_NUMEROLOGY_DATA = "numerology_data"` (saved at profile finalize by
+  `_try_compute_and_save_numerology` in `scenario_intake.py`, next to natal + matrix).
+- **Core numbers** (one documented standard school — no single public canon; stated in module +
+  test + KB): life path, expression/destiny, soul urge (vowels), personality (consonants),
+  birthday, maturity. **Reduction = digit-sum; master numbers 11/22/33 are KEPT** (not reduced).
+  Life path uses the **Decoz method** (reduce day, month, year separately keeping masters, then
+  sum and reduce) — NOT "sum all digits at once".
+- **Cyrillic table = dominant 33-letter Pythagorean grid** (letter value = `(pos-1) mod 9 + 1`,
+  so `1=А И С Ъ`, … `9=З Р Щ`). **Ё is its own letter (7)**, not «е»(6). Vowels for soul urge:
+  `а е ё и о у ы э ю я` (й = consonant). **Ъ/Ь carry no value (skipped)** — so expression = soul
+  + personality. Latin fallback = standard `A=1…I=9, J=1…` with vowels `AEIOU` (Y = consonant).
+  Case/spaces/hyphens ignored.
+- **Instant render (no LLM):** `/numerology` renders saved data via `chart_render.render_numerology_message`
+  (deterministic; computes+saves on the fly if missing) — handled as a command in `scenario_intake`
+  (`_NUMEROLOGY_COMMANDS`), in the bot menu (`bot_commands.py`), and in `/profile`
+  («🔢 Нумерология рассчитана … /numerology» + button). Deep LLM analysis via `mdl:numerology`
+  button (expanded in `quick_actions.py`). Bold/emoji/lists only — never `_…_` italic.
+- **KB** lives in `verticals/kb/astrology/numerology/*.md` (overview, tables, core-number roles,
+  numbers 1–9, master numbers, sources). Same vertical — coexists with natal-chart + matrix KB.
+- **Tests (offline):** `tests/test_numerology_regression.py` (hand-verified snapshot «Иван Иванов»
+  17.03.1992: LP5/expr5/soul11/pers3/bday8/maturity1, master-number life paths, Ё≠Е, Ъ/Ь skip,
+  latin fallback) + `tests/test_numerology_integration.py` (save at finalize, `/numerology`
+  render, no-name degrade, profile block) + `tests/test_rag_numerology_smoke.py` (KB indexes,
+  retrieval, coexists with matrix KB).
+
 ### RAG activation (Матрица Судьбы KB)
 
 RAG is off by default (`MANDALA_RAG_BACKEND=none`). Local dev path and prod requirement are in

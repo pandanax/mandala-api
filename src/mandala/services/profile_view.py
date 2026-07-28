@@ -15,6 +15,7 @@ from mandala.verticals.client_knowledge import (
     AGENT_CARD_ASTRO_SYSTEM,
     AGENT_CARD_DESTINY_MATRIX_DATA,
     AGENT_CARD_NATAL_CHART_DATA,
+    AGENT_CARD_NUMEROLOGY_DATA,
 )
 
 
@@ -27,6 +28,7 @@ def _profile_buttons(vertical_id: str) -> list[list[dict[str, str]]]:
     rows: list[list[dict[str, str]]] = [[_btn("✏️ Редактировать", CB_PROFILE_EDIT)]]
     if vertical_id.strip() == "astrology":
         rows.append([_btn("🪐 Натальная карта", "/natal"), _btn("🌌 Карта судьбы", "/matrix")])
+        rows.append([_btn("🔢 Нумерология", "/numerology")])
     return rows
 
 
@@ -75,6 +77,14 @@ def build_profile_message(vertical_id: str, agent_card: dict[str, Any]) -> Outbo
         )
         lines.append("")
         lines.append(f"🌌 **Карта судьбы рассчитана** — зона комфорта: {comfort_s} (/matrix)")
+
+    numerology_data = agent_card.get(AGENT_CARD_NUMEROLOGY_DATA)
+    if isinstance(numerology_data, dict) and numerology_data:
+        numbers = numerology_data.get("numbers")
+        life_path = numbers.get("life_path") if isinstance(numbers, dict) else None
+        lp_s = f" — жизненный путь: {life_path}" if life_path is not None else ""
+        lines.append("")
+        lines.append(f"🔢 **Нумерология рассчитана**{lp_s} — открыть: /numerology")
 
     promo = agent_card.get("activated_promo")
     if isinstance(promo, str) and promo.strip():

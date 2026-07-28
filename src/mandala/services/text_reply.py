@@ -34,6 +34,10 @@ from mandala.astro.natal_chart import (
     current_transits_to_system_text,
     natal_chart_to_system_text,
 )
+from mandala.astro.numerology import (
+    compute_numerology,
+    numerology_to_system_text,
+)
 from mandala.domain.contracts import InboundEvent, OutboundMessage
 from mandala.llm import ChatMessage, TextCompletionClient
 from mandala.llm.exceptions import LlmProviderError
@@ -268,6 +272,14 @@ def handle_inbound_text_llm(
                 system_prompt = f"{system_prompt}\n\n{destiny_matrix_to_system_text(dm)}"
             except Exception:
                 logger.warning("failed to compute destiny matrix for system prompt", exc_info=True)
+            # Нумерология (пифагорейская, по имени + дате) — ещё одна отдельная система.
+            # Считаем на лету и подмешиваем как ДАННЫЕ; имя опционально (движок деградирует).
+            try:
+                name_raw = str(card.get("full_name") or "").strip()
+                num = compute_numerology(name_raw, birth_date_raw.strip())
+                system_prompt = f"{system_prompt}\n\n{numerology_to_system_text(num)}"
+            except Exception:
+                logger.warning("failed to compute numerology for system prompt", exc_info=True)
     if search_port is not None:
         rag_cfg = RagEnvSettings.from_env()
         try:
