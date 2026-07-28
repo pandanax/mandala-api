@@ -7,6 +7,7 @@ LLM получает только готовые структурированн�
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -47,31 +48,42 @@ _PLANET_RU: dict[str, str] = {
 
 # Дополнительные точки/оси, которые kerykeion выдаёт в аспектах (не входят в 10 планет).
 # Имена приходят в разных вариантах между версиями (Mean_/True_, Medium_Coeli/MC,
-# *_Lunar_Node) — покрываем все, чтобы в аспектах не протекала латиница.
+# *_Node / *_Lunar_Node) — покрываем все, чтобы к пользователю НИКОГДА не протекла
+# латиница. Ключи в нижнем регистре — translate_point_name нормализует имя
+# (`.strip().lower()`), поэтому регистр kerykeion между версиями не важен.
 _POINT_RU: dict[str, str] = {
-    "Ascendant": "Асцендент",
-    "Descendant": "Десцендент",
-    "Medium_Coeli": "Середина Неба (MC)",
-    "Mc": "Середина Неба (MC)",
-    "Imum_Coeli": "Дно Неба (IC)",
-    "Ic": "Дно Неба (IC)",
-    "Chiron": "Хирон",
-    "Mean_Lilith": "Чёрная Луна (Лилит)",
-    "True_Lilith": "Чёрная Луна (Лилит)",
-    "Lilith": "Чёрная Луна (Лилит)",
-    "Mean_Node": "Северный узел",
-    "True_Node": "Северный узел",
-    "North_Node": "Северный узел",
-    "Mean_North_Node": "Северный узел",
-    "True_North_Node": "Северный узел",
-    "Mean_North_Lunar_Node": "Северный узел",
-    "True_North_Lunar_Node": "Северный узел",
-    "Mean_South_Node": "Южный узел",
-    "True_South_Node": "Южный узел",
-    "South_Node": "Южный узел",
-    "Mean_South_Lunar_Node": "Южный узел",
-    "True_South_Lunar_Node": "Южный узел",
+    "ascendant": "Асцендент",
+    "asc": "Асцендент",
+    "descendant": "Десцендент",
+    "dsc": "Десцендент",
+    "medium_coeli": "Середина Неба (MC)",
+    "mc": "Середина Неба (MC)",
+    "imum_coeli": "Дно Неба (IC)",
+    "ic": "Дно Неба (IC)",
+    "chiron": "Хирон",
+    "mean_lilith": "Чёрная Луна (Лилит)",
+    "true_lilith": "Чёрная Луна (Лилит)",
+    "lilith": "Чёрная Луна (Лилит)",
+    "mean_node": "Северный узел",
+    "true_node": "Северный узел",
+    "north_node": "Северный узел",
+    "mean_north_node": "Северный узел",
+    "true_north_node": "Северный узел",
+    "mean_north_lunar_node": "Северный узел",
+    "true_north_lunar_node": "Северный узел",
+    "mean_south_node": "Южный узел",
+    "true_south_node": "Южный узел",
+    "south_node": "Южный узел",
+    "mean_south_node_lunar": "Южный узел",
+    "mean_south_lunar_node": "Южный узел",
+    "true_south_lunar_node": "Южный узел",
 }
+
+# Подчёркивание или прогон ≥3 латинских букв подряд = непереведённое техническое имя
+# kerykeion ('True_North_Lunar_Node', 'Chiron', 'First_House'). Такое имя пользователю
+# показывать НЕЛЬЗЯ. Короткие латинские аббревиатуры в русских подписях («MC», «IC»,
+# «Rx») — легитимны и разрешены (≤2 буквы подряд), поэтому и порог ≥3.
+_TECH_NAME_RE = re.compile(r"_|[A-Za-z]{3,}")
 
 _ASPECT_RU: dict[str, str] = {
     "conjunction": "соединение",
@@ -192,10 +204,34 @@ def _sign_ru(sign: str) -> str:
     return _SIGN_RU.get(sign[:3], sign)
 
 
-def _planet_ru(name: str) -> str:
-    if name in _PLANET_RU:
-        return _PLANET_RU[name]
-    return _POINT_RU.get(name, name)
+def is_display_safe_name(name: object) -> bool:
+    """Имя точки/планеты/аспекта безопасно показывать пользователю.
+
+    Безопасно = непустая строка без ``_`` и без прогона ≥3 латинских букв (короткие
+    аббревиатуры «MC»/«IC» в русских подписях допустимы). Непереведённое техническое
+    имя kerykeion (``True_North_Lunar_Node``, ``Chiron`` и т.п.) — небезопасно: его
+    нельзя показывать ни в детерминированном рендере, ни в данных, которые цитирует LLM.
+    """
+    if not isinstance(name, str) or not name.strip():
+        return False
+    return _TECH_NAME_RE.search(name) is None
+
+
+def translate_point_name(name: str) -> str | None:
+    """Централизованный перевод EN-имени точки/планеты kerykeion → русское.
+
+    Единая точка перевода для всех путей к пользователю (рендер и system-текст LLM).
+    Возвращает ``None``, если имя перевести НЕ удалось и результат всё ещё содержит
+    латиницу/``_`` — тогда вызывающий код обязан аккуратно ОПУСТИТЬ этот аспект/точку,
+    чтобы технический мусор не протёк пользователю. Уже русское имя (напр. из старых
+    сохранённых данных) проходит как есть.
+    """
+    if not name:
+        return None
+    ru = _PLANET_RU.get(name) or _POINT_RU.get(name.strip().lower())
+    if ru is None:
+        ru = name  # вдруг это уже русское имя (легаси-данные) — проверим ниже
+    return ru if is_display_safe_name(ru) else None
 
 
 def _aspect_ru(name: str) -> str:
@@ -328,8 +364,11 @@ def calculate_natal_chart(
         if obj is None:
             continue
         name_en = getattr(obj, "name", attr.capitalize())
+        name_ru = translate_point_name(name_en)
+        if name_ru is None:
+            continue  # непереводимое имя — не показываем технический мусор
         sign_abbr = getattr(obj, "sign", "")
-        planets[_planet_ru(name_en)] = {
+        planets[name_ru] = {
             "sign": _sign_ru(sign_abbr),
             "sign_en": sign_abbr,
             "degree": round(float(getattr(obj, "position", 0)), 2),
@@ -363,11 +402,13 @@ def calculate_natal_chart(
 
         result = AspectsFactory.single_chart_aspects(subject.model())
         for asp in result.aspects[:30]:  # первые 30 достаточно
-            p1 = _planet_ru(asp.p1_name or "")
-            p2 = _planet_ru(asp.p2_name or "")
+            p1 = translate_point_name(asp.p1_name or "")
+            p2 = translate_point_name(asp.p2_name or "")
             asp_name = _aspect_ru(asp.aspect or "")
             orb = round(float(asp.orbit), 2)
-            if p1 and p2 and asp_name:
+            # Опускаем аспект, если ЛЮБАЯ его часть непереводима (латиница/underscore) —
+            # к пользователю не должно протечь техническое имя точки или аспекта.
+            if p1 and p2 and is_display_safe_name(asp_name):
                 aspects.append({"planet1": p1, "planet2": p2, "aspect": asp_name, "orb": orb})
     except Exception as exc:
         logger.warning("aspects calculation failed: %s", exc)
@@ -458,8 +499,11 @@ def calculate_current_transits(
         if obj is None:
             continue
         name_en = getattr(obj, "name", attr.capitalize())
+        name_ru = translate_point_name(name_en)
+        if name_ru is None:
+            continue
         sign_abbr = getattr(obj, "sign", "")
-        planets[_planet_ru(name_en)] = {
+        planets[name_ru] = {
             "sign": _sign_ru(sign_abbr),
             "degree": round(float(getattr(obj, "position", 0)), 2),
             "retrograde": bool(getattr(obj, "retrograde", False)),
@@ -521,20 +565,36 @@ def natal_chart_to_system_text(chart: dict[str, Any]) -> str:
 
     planets = chart.get("planets", {})
     if planets:
-        lines.append("\nПланеты:")
-        for planet, data in planets.items():
-            retro = " (Rx)" if data.get("retrograde") else ""
-            house = f", дом {data['house']}" if data.get("house") else ""
-            deg = data.get("degree", 0)
-            lines.append(f"  {planet}: {data.get('sign', '?')}{house}{retro}, {deg}°")
+        # Защитная сетка: пропускаем планеты/точки с непереводимым (латиница/_) именем,
+        # даже из старых сохранённых карт — LLM цитирует этот блок в «Углублённом разборе».
+        safe_planets = [(p, d) for p, d in planets.items() if is_display_safe_name(p)]
+        if safe_planets:
+            lines.append("\nПланеты:")
+            for planet, data in safe_planets:
+                retro = " (Rx)" if data.get("retrograde") else ""
+                # Дом — ЧИСЛОМ, а не сырым kerykeion-именем ('First_House' → 1): иначе
+                # латиница протекает в system-текст, который LLM цитирует в разборе.
+                num = house_number(data.get("house"))
+                house = f", дом {num}" if num is not None else ""
+                deg = data.get("degree", 0)
+                lines.append(f"  {planet}: {data.get('sign', '?')}{house}{retro}, {deg}°")
 
     aspects = chart.get("aspects", [])
     if aspects:
-        lines.append("\nКлючевые аспекты:")
-        for asp in aspects[:10]:
-            lines.append(
-                f"  {asp['planet1']} — {asp['planet2']}: {asp['aspect']} (орб {asp['orb']}°)"
-            )
+        # То же: аспект с непереводимой точкой/именем не показываем (никакой латиницы).
+        safe_aspects = [
+            asp
+            for asp in aspects
+            if is_display_safe_name(asp.get("planet1"))
+            and is_display_safe_name(asp.get("planet2"))
+            and is_display_safe_name(asp.get("aspect"))
+        ]
+        if safe_aspects:
+            lines.append("\nКлючевые аспекты:")
+            for asp in safe_aspects[:10]:
+                lines.append(
+                    f"  {asp['planet1']} — {asp['planet2']}: {asp['aspect']} (орб {asp['orb']}°)"
+                )
 
     lines.append("=== КОНЕЦ НАТАЛЬНОЙ КАРТЫ ===")
     system_label = chart.get("chart_system", "")

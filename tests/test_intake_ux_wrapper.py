@@ -185,6 +185,35 @@ def test_instant_natal_and_matrix_render_from_db(store: dict[str, Any]) -> None:
     assert "карта судьбы" in (matrix[0].text or "").lower()
 
 
+def test_profile_natal_button_routes_to_render(store: dict[str, Any]) -> None:
+    # Жалоба капитана: в /profile должна быть РАБОЧАЯ отсылка на /natal.
+    uid = _seed_user(store)
+    with patch(_GEO, return_value=_MOSCOW):
+        _drive_full_intake(store, uid)
+
+        # 1) В профиле есть кнопка с callback "/natal".
+        profile = _run(store, uid, "/profile")
+        codes = [
+            c.get("callback_data", "") for m in profile for row in (m.buttons or []) for c in row
+        ]
+        assert "/natal" in codes, "в профиле нет кнопки на натальную карту"
+
+        # 2) Клик по ней (callback "/natal" приходит как event.text) → рендер карты.
+        natal = _run(store, uid, "/natal")
+    assert any(m.photo_bytes or m.photo for m in natal), "клик из профиля не открыл карту"
+    assert "натальная карта" in (natal[-1].text or "").lower()
+
+
+def test_natal_photo_caption_carries_time(store: dict[str, Any]) -> None:
+    # Подпись к колесу зависит от даты, ВРЕМЕНИ и места — время должно быть в подписи.
+    uid = _seed_user(store)
+    with patch(_GEO, return_value=_MOSCOW):
+        _drive_full_intake(store, uid)  # время 14:30
+        natal = _run(store, uid, "/natal")
+    photo = next(m for m in natal if m.photo_bytes or m.photo)
+    assert "14:30" in (photo.text or ""), f"нет времени в подписи: {photo.text!r}"
+
+
 def test_profile_edit_reflow_and_recompute(store: dict[str, Any]) -> None:
     uid = _seed_user(store)
     with patch(_GEO, return_value=_MOSCOW):

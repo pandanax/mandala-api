@@ -21,21 +21,39 @@ def test_ensure_nav_adds_fallback_to_buttonless_last_message() -> None:
     out = ensure_nav([OutboundMessage(text="Разбор вашей карты…")], "astrology")
     assert out[-1].buttons is not None
     codes = _flat_callbacks(out[-1])
-    # Фолбэк — единственная возвратная кнопка «⬅️ К темам» (→ модель снова даст навигацию),
-    # а НЕ статические контентные кнопки Натальная/Прогноз/Сферы/Профиль (они в бургер-меню).
-    assert codes == ["mdl:topics"]
-    for stale in ("mdl:natal", "mdl:forecast_menu", "mdl:th_personality", "mdl:profile"):
-        assert stale not in codes
+    # Богатый контекстный фолбэк (жалоба капитана: «почти всегда — нормальные кнопки,
+    # а не одна ‹К темам›»): продолжить тему / другой аспект / прогноз, и лишь
+    # последней — возврат «К темам».
+    assert "mdl:continue" in codes
+    assert "mdl:another" in codes
+    assert "mdl:topics" in codes
+    assert codes[-1] == "mdl:topics"  # возврат — крайний случай, последним
 
 
-def test_astrology_fallback_is_single_back_button() -> None:
+def test_astrology_fallback_is_rich_not_single_button() -> None:
     from mandala.services.nav_guarantee import fallback_nav_buttons
 
     rows = fallback_nav_buttons("astrology")
     assert rows is not None
     flat = [c for row in rows for c in row]
-    assert len(flat) == 1
-    assert flat[0]["callback_data"] == "mdl:topics"
+    # 2–4 осмысленных перехода, а не одна сиротливая кнопка.
+    assert 2 <= len(flat) <= 4
+    assert flat[-1]["callback_data"] == "mdl:topics"
+
+
+def test_astrology_fallback_codes_all_route() -> None:
+    # Каждая фолбэк-кнопка должна вести к реальному ходу диалога (expand → запрос LLM),
+    # иначе клик по ней ничего не делает.
+    from mandala.services.nav_guarantee import fallback_nav_buttons
+    from mandala.verticals.quick_actions import expand_inbound_quick_action
+
+    rows = fallback_nav_buttons("astrology")
+    assert rows is not None
+    for row in rows:
+        for btn in row:
+            code = btn["callback_data"]
+            expanded = expand_inbound_quick_action("astrology", code)
+            assert expanded is not None and expanded != code, f"код {code} не раскрывается"
 
 
 def test_ensure_nav_preserves_llm_nav_buttons() -> None:

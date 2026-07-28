@@ -15,7 +15,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from mandala.astro.natal_chart import compute_element_balance, house_number
+from mandala.astro.natal_chart import (
+    compute_element_balance,
+    house_number,
+    is_display_safe_name,
+)
 from mandala.domain.contracts import OutboundMessage
 
 # Короткие СТАТИЧЕСКИЕ подписи (не LLM) к ядру карты — что означает каждая точка.
@@ -87,7 +91,7 @@ def _block_retrograde(planets: dict[str, Any], lines: list[str]) -> None:
     retro = [
         planet
         for planet, data in planets.items()
-        if isinstance(data, dict) and data.get("retrograde")
+        if isinstance(data, dict) and data.get("retrograde") and is_display_safe_name(planet)
     ]
     lines.append("")
     if retro:
@@ -101,7 +105,7 @@ def _block_planets_by_sign(planets: dict[str, Any], lines: list[str]) -> None:
     lines.append("")
     lines.append("🪐 **Планеты в знаках**")
     for planet, data in planets.items():
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) or not is_display_safe_name(planet):
             continue
         sign = data.get("sign", "?")
         deg = data.get("degree")
@@ -117,7 +121,7 @@ def _block_planets_by_house(planets: dict[str, Any], lines: list[str]) -> None:
     """🏠 Планеты по домам (планета → номер дома)."""
     housed = []
     for planet, data in planets.items():
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) or not is_display_safe_name(planet):
             continue
         num = house_number(data.get("house"))
         if num is not None:
@@ -146,7 +150,7 @@ def _block_elements(natal_data: dict[str, Any], planets: dict[str, Any], lines: 
     top = max(balance.values())
     dominant = [el for el in ("Огонь", "Земля", "Воздух", "Вода") if balance.get(el, 0) == top]
     if top and len(dominant) == 1:
-        lines.append(f"_Преобладает: {dominant[0]}._")
+        lines.append(f"**Преобладает: {dominant[0]}.**")
 
 
 def _block_aspects(aspects: list[Any], lines: list[str]) -> None:
@@ -157,10 +161,15 @@ def _block_aspects(aspects: list[Any], lines: list[str]) -> None:
     for asp in aspects:
         if not isinstance(asp, dict):
             continue
+        p1 = asp.get("planet1", "?")
+        p2 = asp.get("planet2", "?")
         name = str(asp.get("aspect", "?"))
+        # Защитная сетка: не показываем аспект с непереводимым (латиница/_) именем точки.
+        if not (is_display_safe_name(p1) and is_display_safe_name(p2)):
+            continue
         orb = asp.get("orb")
         orb_s = f" (орб {orb}°)" if isinstance(orb, (int, float)) else ""
-        line = f"• {asp.get('planet1', '?')} — {asp.get('planet2', '?')}: {name}{orb_s}"
+        line = f"• {p1} — {p2}: {name}{orb_s}"
         if name in _HARMONIOUS_ASPECTS:
             harmonious.append(line)
         elif name in _TENSE_ASPECTS:
@@ -172,10 +181,10 @@ def _block_aspects(aspects: list[Any], lines: list[str]) -> None:
     lines.append("")
     lines.append("🔗 **Аспекты**")
     if harmonious:
-        lines.append("_Гармоничные:_")
+        lines.append("**Гармоничные:**")
         lines.extend(harmonious[:6])
     if tense:
-        lines.append("_Напряжённые:_")
+        lines.append("**Напряжённые:**")
         lines.extend(tense[:6])
     if other and not (harmonious or tense):
         lines.extend(other[:6])
@@ -205,7 +214,7 @@ def render_natal_chart_text(natal_data: dict[str, Any]) -> str:
     system = natal_data.get("chart_system", "")
     lines: list[str] = ["🪐 **Ваша натальная карта**"]
     if system:
-        lines.append(f"_Система: {system}_")
+        lines.append(f"**Система:** {system}")
 
     planets_raw = natal_data.get("planets")
     planets: dict[str, Any] = planets_raw if isinstance(planets_raw, dict) else {}
@@ -250,7 +259,7 @@ def render_destiny_matrix_text(dm: dict[str, Any]) -> str:
     lines: list[str] = ["🌌 **Ваша Карта судьбы** (Матрица Судьбы)"]
     bd = dm.get("birth_date")
     if bd:
-        lines.append(f"_По дате рождения: {bd}_")
+        lines.append(f"**По дате рождения:** {bd}")
     lines.append("")
     lines.append("**Личностный квадрат:**")
     lines.append(f"• Портрет (день): {_arc_str(dm.get('day'))}")

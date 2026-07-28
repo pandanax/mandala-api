@@ -18,7 +18,11 @@ callback-коды быстрых действий (см. :mod:`mandala.verticals
 
 from __future__ import annotations
 
+import logging
+
 from mandala.domain.contracts import OutboundMessage
+
+logger = logging.getLogger(__name__)
 
 
 def _btn(label: str, callback_data: str) -> dict[str, str]:
@@ -26,15 +30,19 @@ def _btn(label: str, callback_data: str) -> dict[str, str]:
 
 
 def _astrology_fallback_buttons() -> list[list[dict[str, str]]]:
-    """Крайний фолбэк astrology, когда модель не дала навигацию.
+    """Контекстный фолбэк astrology, когда модель не дала свой nav-блок.
 
-    НЕ подставляем общие статические кнопки (Натальная/Прогноз/Сферы/Профиль) —
-    они переехали в бургер-меню, а под ответами живёт только контекстная навигация
-    самой модели. Здесь лишь одна возвратная кнопка «⬅️ К темам»: клик по ней просит
-    модель предложить темы разбора — и она снова выдаёт контекстные кнопки. Так
-    ответ никогда не остаётся без навигации, но и не несёт чужих пресных кнопок.
+    Модель почти всегда сама выдаёт кнопки-развилки (см. промпт вертикали). Но если
+    она их не дала (битый JSON, развилки прозой, не та вертикаль), ответ всё равно не
+    должен остаться с одной сиротливой кнопкой «К темам». Даём осмысленный минимум
+    переходов «как продолжать диалог»: продолжить тему, копнуть другой аспект, прогноз,
+    и лишь ПОСЛЕДНЕЙ — возврат «К темам» (крайний случай). Клик по каждой проходит
+    обычный путь ``expand_inbound_quick_action`` → модель снова выдаёт контекстные кнопки.
     """
-    return [[_btn("⬅️ К темам", "mdl:topics")]]
+    return [
+        [_btn("➡️ Продолжить тему", "mdl:continue"), _btn("🔀 Другой аспект", "mdl:another")],
+        [_btn("📊 Прогноз", "mdl:forecast_menu"), _btn("⬅️ К темам", "mdl:topics")],
+    ]
 
 
 def _therapy_fallback_buttons() -> list[list[dict[str, str]]]:
@@ -78,6 +86,9 @@ def ensure_nav(
         if msg.invoice is not None:
             continue
         if msg.buttons is None and (msg.text or msg.photo):
+            # Диагностика: модель не дала валидный nav-блок — сработал фолбэк. Логируем
+            # (info, без шума), чтобы видеть частоту деградаций навигации.
+            logger.info("nav fallback fired vertical_id=%s", vertical_id.strip())
             messages[i] = msg.model_copy(update={"buttons": fallback})
         # Терминальное не-invoice сообщение найдено — дальше не идём в любом случае.
         return messages

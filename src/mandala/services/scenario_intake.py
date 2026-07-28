@@ -342,6 +342,23 @@ def _promo_nav_buttons() -> list[list[dict[str, str]]]:
     ]
 
 
+# Значения birth_time, означающие «время неизвестно» (совпадает с parse в natal_chart).
+_TIME_UNKNOWN = frozenset({"unknown", "не знаю", "незнаю", "", "?"})
+
+
+def _natal_wheel_caption(birth_date: str, birth_time: str, birth_place: str) -> str:
+    """Подпись к колесу: дата · [время] · место (без имени — оно на карту не влияет).
+
+    Время показываем только когда оно известно; при неизвестном — без пустого
+    разделителя (``дата · место``).
+    """
+    parts = [birth_date]
+    if birth_time.strip().lower() not in _TIME_UNKNOWN:
+        parts.append(birth_time.strip())
+    parts.append(birth_place)
+    return "🪐 Натальная карта · " + " · ".join(parts)
+
+
 def _natal_wheel_photo_message(agent_card: dict[str, Any]) -> OutboundMessage | None:
     """Сообщение с КОЛЕСОМ натальной карты (фото) или ``None``, если построить нельзя.
 
@@ -355,11 +372,13 @@ def _natal_wheel_photo_message(agent_card: dict[str, Any]) -> OutboundMessage | 
     birth_place = str(agent_card.get("birth_place") or "").strip()
     if not birth_date or not birth_place:
         return None
-    caption = f"🪐 Натальная карта · {birth_date} · {birth_place}"
+    birth_time = str(agent_card.get("birth_time") or "unknown").strip()
+    # Колесо зависит от даты, ВРЕМЕНИ и места (не от имени) — показываем их в подписи.
+    # Время добавляем только когда оно известно (иначе — без пустого разделителя).
+    caption = _natal_wheel_caption(birth_date, birth_time, birth_place)
     cached = agent_card.get(AGENT_CARD_NATAL_WHEEL_FILE_ID)
     if isinstance(cached, str) and cached:
         return OutboundMessage(photo=cached, text=caption, buttons=[])
-    birth_time = str(agent_card.get("birth_time") or "unknown").strip()
     system = str(agent_card.get(AGENT_CARD_ASTRO_SYSTEM) or "western")
     # Координаты берём из сохранённой карты (без повторного геокодинга → /natal офлайновый).
     coords: tuple[float, float, str] | None = None

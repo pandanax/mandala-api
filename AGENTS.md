@@ -39,6 +39,17 @@ code: `src/mandala/astro/natal_chart.py`.
   aspects split harmonious/tense → «Снаружи Асц, внутри Солнце» contrast). Render is
   deterministic (never LLM), tolerant of legacy saved data (missing axes/elements skipped or
   recomputed). Deep interpretation still goes through the LLM «Углублённый разбор» button.
+  Render uses **only bold `**…**`/emoji/lists** — Telegram's `format_llm_text_for_telegram_html`
+  does NOT support single-`_…_` italic (leaks literal underscores); never add `_…_`.
+- **No technical latin point names ever reach the user.** kerykeion v5 emits aspect/point
+  names like `True_North_Lunar_Node`, `Chiron`, and houses as `First_House`. The single
+  translation gate is `natal_chart.translate_point_name` (EN→RU, `None` when untranslatable)
+  + `is_display_safe_name` (rejects `_` or a ≥3-latin run; short «MC»/«IC» labels stay). Aspects
+  drop when any part is unsafe; `natal_chart_to_system_text` renders houses as **numbers**
+  (`house_number`, not raw `First_House`) — that raw-house string was leaking into the LLM
+  «Углублённый разбор». Both user paths (`chart_render` **and** `natal_chart_to_system_text`)
+  defensively skip unsafe legacy names. `/natal` caption carries date · **time** (when known) ·
+  place — never the name (the wheel doesn't depend on it).
 - **Birth time is asked as LOCAL time.** `intake_steps.json` `birth_time` prompt explicitly asks
   for local birthplace time; `intake_flow._echo_line` confirms «приму как МЕСТНОЕ время».
 - **Chart-wheel image (shipped).** `/natal` (and any saved-chart render) sends a colored
@@ -102,7 +113,13 @@ LLM-generated navigation. The model appends a machine block at the very end of i
   inline keyboard — the LLM picks it via the nav block above; when the model emits no valid
   nav (bad JSON, non-astrology vertical), `services/nav_guarantee.py` (`ensure_nav`) attaches
   a contextual fallback to the terminal (last non-invoice) message so a reply is **never**
-  left without navigation. Every domain return path that isn't a bare intake-wizard prompt
+  left without navigation. The astrology fallback is **2–4 contextual buttons** (Продолжить
+  тему `mdl:continue` / Другой аспект `mdl:another` / Прогноз / «⬅️ К темам» last) — not a
+  single «К темам» (captain: «почти всегда должны быть нормальные кнопки»); every fallback
+  code expands via `quick_actions`. The prompt (`verticals/prompts.py`) hard-forbids listing
+  «куда дальше» in prose (bad→good example) so the model puts forks in buttons, not text;
+  `ensure_nav` logs `nav fallback fired` (info) when the model gave no valid nav. Every
+  domain return path that isn't a bare intake-wizard prompt
   runs through `ensure_nav` (`domain/handler.py`, `services/scenario_intake.py`). The old
   `ASTROLOGY_REPLY_KEYBOARD` is gone; `outbound_send.deliver_outbound_messages` attaches a
   one-time `ReplyKeyboardRemove` to the first button-less message of a batch to clear the
