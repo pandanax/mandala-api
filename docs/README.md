@@ -1,6 +1,6 @@
 # Документация Mandala (MVP)
 
-Несколько каналов (Telegram, HTTP Web API), профиль и память в **PostgreSQL**, опционально **RAG** (Qdrant), разные **LLM** для текста и картинок, тарифы с лимитами, платежи (**Telegram Stars** и задел под другие провайдеры).
+Несколько каналов (Telegram, HTTP Web API), профиль и память в **PostgreSQL**, опционально **RAG** (Qdrant), разные **LLM** для текста и картинок, **предоплаченный кошелёк сообщений** (пакеты **Telegram Stars**, задел под другие провайдеры).
 
 **С чего начать после клонирования репозитория:** [getting-started.md](getting-started.md) (установка, **`.env`**, миграции, запуск, прод-checklist). **Что дальше по продукту:** [roadmap.md](roadmap.md).
 
@@ -30,8 +30,8 @@ bash scripts/docs-serve.sh build    # статическая сборка в ./s
 | [architecture.md](architecture.md) | Слои системы, потоки данных, MVP vs расширения |
 | [data-model.md](data-model.md) | Сущности, таблицы БД, связь каналов с пользователем |
 | [channels.md](channels.md) | Нормализованные события, адаптеры, `OutboundMessage` |
-| [billing.md](billing.md) | Абстракция биллинга, Telegram Stars, будущие провайдеры |
-| [quotas-and-plans.md](quotas-and-plans.md) | Планы, лимиты (в т.ч. 0 картинок), учёт usage |
+| [billing.md](billing.md) | Кошелёк сообщений: старт 20, 3 Stars-пакета, идемпотентное зачисление, `/reset` хранит баланс+промо |
+| [quotas-and-plans.md](quotas-and-plans.md) | Квота = баланс сообщений (списание 1/LLM-ответ, картинки не тарифицируются, промо-безлимит) |
 | [agent.md](agent.md) | Оркестрация (граф), единый выбор LLM-модели вертикали, RAG, память |
 | [deployment-yandex-cloud.md](deployment-yandex-cloud.md) | Деплой в Yandex Cloud: ресурсы, сеть, БД, Docker, контракт PORT/EXPOSE/health |
 | [monitoring.md](monitoring.md) | Наблюдаемость: дашборд метрик YC Monitoring (Terraform), эмиссия метрик, логи |
@@ -63,7 +63,7 @@ bash scripts/docs-serve.sh build    # статическая сборка в ./s
 
 1. **Ядро не знает про Telegram** — только внутренний `user_id`, **`vertical_id`** и доменные события.
 2. **Профиль, квоты, биллинг** — источник истины в **PostgreSQL**; гибкая часть профиля и артефактов — **JSONB** (разные агенты — разная форма без смены СУБД).
-3. **Лимиты** — конфигурируемые по плану, без магических чисел в коде.
-4. **Платежи** — через интерфейс `BillingProvider`, первая реализация — Stars.
+3. **Квота = предоплаченный баланс сообщений** (списание 1/LLM-ответ), не месячные лимиты; переживает `/reset`.
+4. **Платежи** — через интерфейс `BillingProvider`, первая реализация — пакеты Telegram Stars (идемпотентное зачисление).
 5. **RAG** — векторный слой отдельно от OLTP (см. [architecture.md](architecture.md)).
 6. **Контейнеры локально** — **Podman** (`podman compose`, `podman build`), без инструкций под Docker Desktop в этом репозитории.

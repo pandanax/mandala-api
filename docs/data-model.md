@@ -30,8 +30,12 @@
 - **`vertical_id`** (FK или текстовый slug — зафиксировать в миграции)
 - `created_at`, `updated_at`
 - `locale` (опционально)
-- `current_plan_id` → `plans` (или подписка в отдельной таблице)
-- `subscription_period_start`, `subscription_period_end` (если биллинг по периодам)
+- **`message_balance`** (целое; **источник истины по квоте** — предоплаченный кошелёк
+  сообщений, миграция `t20_01_message_wallet`). Ключ `(user, vertical)`; списание 1/LLM-ответ;
+  переживает `/reset`. См. [billing.md](billing.md), [quotas-and-plans.md](quotas-and-plans.md).
+- `current_plan_id` → `plans` — **наследие**: остаётся NOT NULL FK (`free`), но рантайм больше
+  не читает `plan_limits`/`usage_counters` (месячная модель заменена кошельком).
+- `subscription_period_start`, `subscription_period_end` — наследие месячной модели (не читаются).
 
 ### `channel_links`
 
@@ -86,11 +90,17 @@
 
 Дублирование с `messages` допустимо по политике: короткий ответ в `messages`, развёрнутый отчёт в `generated_artifacts`.
 
-## Планы и лимиты
+## Планы и лимиты (НАСЛЕДИЕ — не читаются рантаймом)
+
+> Актуальная квота — колонка `users.message_balance` (кошелёк сообщений). Таблицы ниже
+> остаются в схеме, но рантайм их больше не читает. См. [billing.md](billing.md).
 
 См. [quotas-and-plans.md](quotas-and-plans.md). Таблицы: `plans`, `plan_limits` (реляционно; при необходимости расширение `metadata` JSONB на уровне плана). Для Telegram Stars (тикет 19): у платного плана заполняются **`billing_provider`** (например **`telegram_stars`**) и **`external_product_id`** (тот же **``invoice_payload``**, что в **``sendInvoice``**; в seed-после миграции **``t19_01_telegram_stars``** — **``mandala_premium_stars``** для **``premium``**).
 
-## Usage
+## Usage (НАСЛЕДИЕ — не читается рантаймом)
+
+> Расход считается кошельком (`users.message_balance`), см. [quotas-and-plans.md](quotas-and-plans.md).
+> `usage_counters` остаётся в схеме, но месячный учёт больше не активен.
 
 ### `usage_counters`
 

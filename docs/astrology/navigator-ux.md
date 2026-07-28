@@ -31,7 +31,8 @@
 {"buttons":[{"label":"…","q":"…"}],"terms":[{"term":"…","q":"…"}]}
 ```
 
-- `label` — надпись на кнопке; `term` — слово в тексте, которое станет ссылкой.
+- `label` — надпись на кнопке; `term` — ключевое слово, которое станет **кнопкой-термином**
+  (не ссылкой в тексте — см. ниже «Рендер терминов»).
 - `q` — **полный follow-up запрос**, который выполнится при клике (как обычный ход диалога).
 - Парсинг, присвоение id и разбор клика: `src/mandala/services/nav_protocol.py`
   (`split_llm_nav_suffix`, `assign_ids`, `resolve_nav_action`). Невалидный или
@@ -107,6 +108,17 @@ fallback в `services/text_reply.py`, когда nav-JSON отсутствует
   статические кнопки-действия («почти всегда должны быть нормальные кнопки»). Каждый код
   фолбэка раскрывается через `quick_actions`; `ensure_nav` логирует `nav fallback fired`
   (info), когда модель не дала валидный nav.
+- **«⬅️ К темам» открывает детерминированное БОГАТОЕ меню тем** (не запрос прозы к LLM).
+  `mdl:topics` раскрывается (в `quick_actions.py`) в специальный код `__topics_menu__`
+  (`TOPICS_MENU_CODE` / `is_topics_menu`) и перехватывается в `domain/handler.py`
+  (`_handle_topics_menu`, рядом с `_handle_forecast_menu`) **до** LLM — так тап **всегда**
+  даёт готовый набор inline-кнопок (короткое интро + 9 кнопок тем), не завися от того,
+  выдала ли модель nav-блок. Кнопки переиспользуют существующие действия: мгновенные рендеры
+  `/natal` · `/matrix` · `/numerology`, подменю прогноза `mdl:forecast_menu` и тематические
+  разборы `mdl:th_rel` · `mdl:th_fin` · `mdl:th_career` · `mdl:th_personality` ·
+  `mdl:th_health`. Меню несёт свои кнопки, поэтому `ensure_nav` его не трогает; единственная
+  fallback-кнопка «⬅️ К темам» (в `nav_guarantee.py`) указывает на `mdl:topics` и открывает
+  именно это меню. Тесты: `tests/test_keyboard_and_commands.py`.
 - **Постоянная reply-клавиатура удалена** (`ASTROLOGY_REPLY_KEYBOARD` больше нет).
   Чтобы убрать залипшую клавиатуру у старых пользователей,
   `outbound_send.deliver_outbound_messages` навешивает одноразовый `ReplyKeyboardRemove`

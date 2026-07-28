@@ -1,27 +1,100 @@
 # Биллинг
 
+> **Модель монетизации — предоплаченный кошелёк сообщений, БЕЗ подписки и месячных лимитов.**
+> Авторитетный код: `services/message_packs.py`, `services/telegram_stars.py`,
+> `services/billing.py`, `services/quota.py`, `repositories/wallet.py`.
+
 ## Принцип
 
-Бизнес-логика не зависит от конкретного способа оплаты. Все провайдеры реализуют общий контракт; активация тарифа происходит в **одном месте** после подтверждённого платежа.
+У каждого пользователя есть простой целочисленный **баланс сообщений**. Каждый **LLM-ответ
+текстом списывает 1**; мгновенные детерминированные рендеры (`/natal`, `/matrix`,
+`/numerology`, `/profile`, `/help`) **не списывают** ничего. Баланс **не привязан к времени**,
+**никогда не сгорает по времени** и **переживает `/reset`**.
 
-## Интерфейс BillingProvider
+- Новый пользователь получает разовый стартовый грант `MANDALA_MESSAGE_WALLET_START`
+  (по умолчанию **20**).
+- На балансе 0 бот показывает **три кнопки-пакета**; покупка пакета **добавляет** сообщения
+  (навсегда, не сгорают).
+- **Промо = вечный безлимит** — обходит любые списания и тоже переживает `/reset`.
+- **Картинки не тарифицируются из кошелька** (решение капитана): `image_generation`
+  разрешён только под промо, иначе отказ, кошелёк не трогается.
 
-Реализовано в коде (тикет 18): Protocol **`mandala.services.billing.BillingProvider`** с методом **`activate_plan`** — идемпотентная запись в **`payment_transactions`** (уникальность **`(provider, external_id)`**) и **`UPDATE users.current_plan_id`**, `subscription_period_start` при новой вставке. Реализация по умолчанию: **`PostgresBillingProvider`** на **`sqlalchemy.engine.Connection`** (транзакция — ответственность вызывающего кода).
+## Баланс: `users.message_balance`
 
-**Тикет 19 (Telegram Stars):** в **`mandala.services.telegram_stars`** — **`handle_pre_checkout_query`**, **`handle_successful_payment`**; маршрут в адаптере: **`process_telegram_billing_update`** (long polling и **``POST /webhooks/telegram/{vertical_id}``**; для оплаты в webhook нужен тот же `TELEGRAM_BOT_TOKEN` для `vertical_id`). Семантика после **первой** успешной оплаты: **`apply_plan_change`**.
+Баланс живёт на колонке `users.message_balance` (миграция `t20_01_message_wallet`), ключ —
+`(user, vertical)`: одна строка `users` на вертикаль, поэтому балансы разных ботов
+изолированы. Репозиторий — `repositories/wallet.py` (`WalletRepository`).
 
-- `create_payment_offer` (обёртка `sendInvoice` / UI «купить») — **TODO: тикет 21+**
-- `refund`, `sync_subscription` (Stripe) — **TODO: за пределами MVP**
+- **Атомарное списание** — без гонок и без ухода в минус (двойное условие внутри `UPDATE`):
+  ```sql
+  UPDATE … SET message_balance = message_balance - 1
+  WHERE … AND message_balance >= 1 RETURNING …
+  ```
+- Стартовый грант выдаётся в `user_identity.get_or_create_user` (server_default колонки = 0).
+- `/reset` **не трогает** `users` — баланс сохраняется. `ProfileRepository.reset_session`
+  дополнительно сохраняет единственный ключ `activated_promo` в `agent_card`, вычищая всё
+  остальное (см. [quotas-and-plans.md](quotas-and-plans.md)).
 
-## Telegram Stars (первая реализация)
+## Квота = кошелёк (`services/quota.py`)
 
-- Обработка **`pre_checkout_query`** — `answerPreCheckoutQuery` после проверки payload; обработка **`message.successful_payment`** — `activate_plan` + `apply_plan_change`.
-- Связь: для платного плана (seed, ``premium``) в БД миграцией заданы **`billing_provider` = `telegram_stars`**, **`external_product_id` = `mandala_premium_stars`**; тот же строковый `invoice_payload` в **`sendInvoice`** / ссылке на товар.
+`can_consume`/`consume` учитывают ресурс: `text_reply` читает/декрементит кошелёк; **промо
+обходит всё (безлимит)**; **картинки не списываются** (нейтральный путь). Точка списания —
+после успешного ответа, в той же транзакции.
 
-Требования:
+## Три пакета — единый источник истины (`services/message_packs.py`)
 
-- **Идемпотентность**: повторный webhook с тем же платежом не продлевает подписку второй раз.
-- **Логи без лишних PII** (тикет 20: **`funnel billing`**, **`activate_plan`** / **`apply_plan_change`** с **`reason`** и **`outcome`**, без сырого **`raw_payload`** на INFO); сырые payload в БД — ограниченный доступ.
+Связка `payload ↔ ⭐-цена ↔ +сообщения`:
+
+| pack_id | payload            | цена  | +сообщений |
+|---------|--------------------|-------|------------|
+| 100     | `mandala_pack_100` | 1 ⭐  | 100        |
+| 300     | `mandala_pack_300` | 2 ⭐  | 300        |
+| 1000    | `mandala_pack_1000`| 5 ⭐  | 1000       |
+
+Цены и гранты параметризуются env (`MANDALA_PACK_{100,300,1000}_{PRICE,MESSAGES}`). Числовой
+`pack_id`/суффикс payload — **стабильный** ключ продукта в журнале покупок: не менять при
+правке цены/гранта. Хелперы: `pack_by_id` / `pack_by_payload` / `all_packs`.
+
+## Инвойсы и пикер (`services/telegram_stars.py`)
+
+- `build_pack_invoice_message(pack_id)` → `OutboundMessage.invoice` (`StarsInvoice`, валюта
+  `XTR`, пустой `provider_token`, терминальное сообщение).
+- `build_packs_picker_message(text=…)` → одно сообщение с тремя кнопками пакетов
+  (`mdl:pack:<id>`).
+- Доставка — `outbound_send.deliver_outbound_messages` → `bot_api.send_invoice`.
+- Хелперы/парсинг callback — `verticals/quick_actions.py`
+  (`PACKS_MENU_CALLBACK=mdl:packs`, `pack_callback`, `parse_pack_callback`, `is_packs_menu`;
+  легаси `mdl:premium` тоже открывает пикер).
+
+## Идемпотентное зачисление — деньги, обязательно (`services/billing.py`)
+
+`PostgresBillingProvider.credit_pack`: `pre_checkout_query` → `successful_payment` резолвит
+пакет по payload, затем в **одной** транзакции вставляет `payment_transactions` (идемпотентно
+по `UNIQUE(provider, external_id)` = Telegram `telegram_payment_charge_id`) **и**
+`WalletRepository.add_balance`. Повторный webhook того же платежа → `duplicate_external_id`,
+баланс не меняется, двойного зачисления нет. `handle_successful_payment` возвращает
+`SuccessfulPaymentOutcome` (credited / new balance / duplicate) — `billing_updates.py`
+показывает подтверждение с актуальным балансом.
+
+## Где показывается пикер пакетов
+
+- `/topup` (`scenario_intake.py`);
+- кнопка «💬 Купить сообщения» в `verticals/post_intake_offers.py` (`mdl:packs`);
+- ветка исчерпанного баланса в `services/text_reply.py`.
+- Ветка картинок (`image_reply.py`) показывает нейтральное «картинки недоступны» **без** CTA
+  на покупку (пакеты — это текстовые кредиты, картинки ими не открываются).
+
+Callback-и пакетов маршрутизируются в `domain/handler.py` (`_route_message_packs`, до
+раскрытия quick-action). Профиль (`services/profile_view.py`) показывает «Осталось
+сообщений: N» (∞ под промо).
+
+## Наследие месячной модели (не удалено, но не используется)
+
+Таблицы `plans`/`plan_limits`/`usage_counters` и `billing_period` остаются (цепочка миграций
+и downgrade целы), но рантайм их **не читает**. `users.current_plan_id` по-прежнему указывает
+на `free` (NOT NULL FK) — просто `plan_limits` больше не читается. Миграция `t20_01`
+бэкфиллит существующих пользователей на стартовый грант (прежние `premium`-подписчики → 1000,
+чтобы никого не понизить); промо-безлимит сохраняется.
 
 ## Другие провайдеры (задел)
 
@@ -30,12 +103,15 @@
 | Stripe | Подписки, webhooks, customer portal |
 | ЮKassa | РФ, разные сценарии оплаты |
 
-Общая таблица транзакций (`payment_transactions`) с полем `provider` и уникальностью по `(provider, external_id)`.
+Общая таблица транзакций `payment_transactions` с полем `provider` и уникальностью по
+`(provider, external_id)`.
 
-## Связь с планами
+## Тесты
 
-После успешной оплаты:
-
-1. Запись в `payment_transactions` со статусом `completed` (и **`activate_plan`** + **`apply_plan_change`** для Stars).
-2. Обновление `users.current_plan_id` и `subscription_period_start` / `subscription_period_end` (тикет 19).
-3. **Usage:** при **Telegram Stars** — сброс за текущий календарный месяц в `apply_plan_change` (см. [quotas-and-plans.md](quotas-and-plans.md)).
+Офлайн: `tests/test_message_packs.py`, `tests/test_telegram_stars_invoice.py`,
+`tests/test_billing_provider.py` (идемпотентность `credit_pack`),
+`tests/test_quota_promo_bypass.py` (списание кошелька + промо + картинка-не-списывается).
+DB-gated: `tests/integration/test_quota_service.py` (стартовый грант, декремент,
+**параллельная атомарность**), `test_telegram_stars_billing.py`, `test_billing_credit_pack.py`
+(идемпотентное зачисление по пакету), `test_wallet_and_reset.py` (reset сохраняет
+баланс+промо, чистит анкету/историю).
