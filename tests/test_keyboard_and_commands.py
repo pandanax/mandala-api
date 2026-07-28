@@ -5,8 +5,91 @@ from __future__ import annotations
 import asyncio
 
 from mandala.adapters.telegram.text_format import TELEGRAM_MAX_TEXT_CHARS, split_text_for_telegram
-from mandala.domain.handler import _handle_forecast_menu
+from mandala.domain.handler import _handle_forecast_menu, _handle_topics_menu
 from mandala.services.scenario_intake import _astrology_help_message
+
+
+def test_topics_menu_returns_rich_inline_button_set() -> None:
+    # Клик «⬅️ К темам» → детерминированное БОГАТОЕ меню тем (≥6 кнопок), не проза LLM.
+    out = _handle_topics_menu()
+    assert len(out) == 1
+    msg = out[0]
+    assert msg.text is not None and msg.text.strip()
+    assert msg.buttons is not None
+    codes = [cell["callback_data"] for row in msg.buttons for cell in row]
+    # Богатый набор: минимум 6 тем разными действиями.
+    assert len(codes) >= 6
+    # Реальные возможности приложения представлены.
+    assert {"/natal", "/matrix", "/numerology", "mdl:forecast_menu"} <= set(codes)
+    # Постоянной нижней клавиатуры нет — только инлайн-кнопки.
+    assert msg.reply_keyboard is None
+
+
+def test_topics_menu_buttons_all_route_to_meaningful_actions() -> None:
+    # Каждая кнопка-тема несёт валидный callback: команда, подменю или квик-экшен LLM.
+    from mandala.services.scenario_intake import _ALL_COMMANDS
+    from mandala.verticals.quick_actions import (
+        expand_inbound_quick_action,
+        is_forecast_menu,
+    )
+
+    out = _handle_topics_menu()
+    codes = [cell["callback_data"] for row in (out[0].buttons or []) for cell in row]
+    for code in codes:
+        if code in _ALL_COMMANDS:
+            continue  # мгновенный рендер-команда (/natal, /matrix, /numerology)
+        expanded = expand_inbound_quick_action("astrology", code)
+        # Либо подменю прогноза, либо развёрнутый запрос-тема к LLM (≠ сырой код).
+        assert is_forecast_menu(expanded) or (expanded is not None and expanded != code), code
+
+
+def test_topics_callback_routes_to_deterministic_menu_not_llm(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # Клик по «⬅️ К темам» (callback mdl:topics) через handle_inbound → меню кнопок, НЕ LLM.
+    from unittest.mock import MagicMock
+    from uuid import uuid4
+
+    import mandala.domain.handler as handler_mod
+    from mandala.domain.contracts import InboundEvent
+
+    class _Profiles:
+        def __init__(self, _conn: object) -> None:
+            pass
+
+        def ensure_row(self, **_kw: object) -> None:
+            return None
+
+        def get_by_user_id(self, _uid: object) -> object:
+            prof = MagicMock()
+            prof.agent_card = {}
+            # Завершённая анкета → intake не перехватывает, доходим до роутинга тем.
+            prof.scenario_state = {"intake_complete": True}
+            return prof
+
+    class _Identity:
+        def __init__(self, _conn: object) -> None:
+            pass
+
+        def get_or_create_user(self, **_kw: object) -> object:
+            return uuid4()
+
+    monkeypatch.setattr(handler_mod, "ProfileRepository", _Profiles)
+    monkeypatch.setattr(handler_mod, "UserIdentityService", _Identity)
+    # Если бы дошло до LLM — тест упал бы: LLM не замокан. Меню должно прийти раньше.
+    monkeypatch.setattr(
+        handler_mod,
+        "handle_inbound_text_llm",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("ушло в LLM вместо меню тем")),
+    )
+
+    ev = InboundEvent(
+        vertical_id="astrology", channel="telegram", external_user_id="1", text="mdl:topics"
+    )
+    out = handler_mod.handle_inbound(ev, MagicMock())
+
+    assert len(out) == 1
+    codes = [cell["callback_data"] for row in (out[0].buttons or []) for cell in row]
+    assert len(codes) >= 6
+    assert {"/natal", "/matrix", "/numerology", "mdl:forecast_menu"} <= set(codes)
 
 
 def test_forecast_menu_returns_four_period_inline_buttons() -> None:

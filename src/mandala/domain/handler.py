@@ -34,6 +34,7 @@ from mandala.verticals.quick_actions import (
     is_reset_button,
     is_show_profile,
     is_system_switch,
+    is_topics_menu,
     parse_pack_callback,
 )
 
@@ -177,6 +178,8 @@ def handle_inbound(
             )
         if is_forecast_menu(expanded):
             return _handle_forecast_menu()
+        if is_topics_menu(expanded):
+            return _handle_topics_menu()
         event_for_pipeline = event.model_copy(update={"text": expanded})
 
     # Свободный текст-интент «прогноз» без периода → сразу кнопки-периоды, а не LLM
@@ -268,6 +271,44 @@ def _handle_forecast_menu() -> list[OutboundMessage]:
                 [
                     {"text": "🗓️ Месяц", "callback_data": "mdl:fc_month"},
                     {"text": "🔭 Год", "callback_data": "mdl:fc_year"},
+                ],
+            ],
+        )
+    ]
+
+
+def _handle_topics_menu() -> list[OutboundMessage]:
+    """Показать детерминированное БОГАТОЕ меню тем разбора (клик «⬅️ К темам»).
+
+    Единственный источник «богатого рендера» тем — не полагаемся на nav-блок LLM.
+    Каждая кнопка ведёт в осмысленное действие: мгновенные рендеры возможностей
+    приложения (``/natal`` / ``/matrix`` / ``/numerology``), подменю прогноза
+    (``mdl:forecast_menu``) и тематические разборы карты (``mdl:th_*`` → запрос к LLM
+    через ``expand_inbound_quick_action``). Само меню — уже валидная навигация,
+    поэтому ``ensure_nav`` его не трогает (кнопки уже есть).
+    """
+    return [
+        OutboundMessage(
+            text=("О чём поговорим? Выберите тему разбора — или просто напишите свой вопрос:"),
+            buttons=[
+                [
+                    {"text": "🪐 Натальная карта", "callback_data": "/natal"},
+                    {"text": "🌌 Карта судьбы", "callback_data": "/matrix"},
+                ],
+                [
+                    {"text": "🔢 Нумерология", "callback_data": "/numerology"},
+                    {"text": "📊 Прогноз", "callback_data": "mdl:forecast_menu"},
+                ],
+                [
+                    {"text": "❤️ Любовь и отношения", "callback_data": "mdl:th_rel"},
+                    {"text": "💰 Деньги и ресурс", "callback_data": "mdl:th_fin"},
+                ],
+                [
+                    {"text": "🎯 Предназначение", "callback_data": "mdl:th_career"},
+                    {"text": "🧭 Характер", "callback_data": "mdl:th_personality"},
+                ],
+                [
+                    {"text": "🩺 Здоровье и энергия", "callback_data": "mdl:th_health"},
                 ],
             ],
         )

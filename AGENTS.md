@@ -139,6 +139,19 @@ LLM-generated navigation. The model appends a machine block at the very end of i
   one-time `ReplyKeyboardRemove` to the first button-less message of a batch to clear the
   lingering sticky keyboard for existing users (stateless, no extra bubble). Lingering
   keyboard taps still resolve via `_KEYBOARD_TEXT_TO_CODE` in `quick_actions.py`.
+- **«⬅️ К темам» renders a deterministic RICH topics menu (not an LLM prose request).**
+  `mdl:topics` expands (in `quick_actions.py`) to the special code `__topics_menu__`
+  (`TOPICS_MENU_CODE` / `is_topics_menu`) and is intercepted in `domain/handler.py`
+  (`_handle_topics_menu`, next to `_handle_forecast_menu`) **before** the LLM — so a tap
+  **always** yields a rich inline button set (short intro + 9 topic buttons), never depends on
+  the model emitting a nav block. Buttons reuse existing actions: instant renders `/natal` ·
+  `/matrix` · `/numerology`, forecast submenu `mdl:forecast_menu`, and theme deep-dives
+  `mdl:th_rel` · `mdl:th_fin` · `mdl:th_career` · `mdl:th_personality` · `mdl:th_health`
+  (each already an LLM-query quick action). The menu carries its own buttons so `ensure_nav`
+  leaves it alone. The single «⬅️ К темам» fallback button (in `nav_guarantee.py`) still
+  points at `mdl:topics` — clicking it now opens this rich menu. Tests:
+  `tests/test_keyboard_and_commands.py` (`_handle_topics_menu` shape, all callbacks route,
+  `mdl:topics` → menu via `handle_inbound` without touching the LLM).
 
 ### Intake: per-field confirm → whole-form confirm → save (draft state machine)
 
