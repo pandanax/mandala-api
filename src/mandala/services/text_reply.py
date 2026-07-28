@@ -53,7 +53,7 @@ from mandala.repositories.profiles import ProfileRepository
 from mandala.services.llm_time_context import build_llm_time_context_block
 from mandala.services.nav_protocol import assign_ids, extract_prose_nav, split_llm_nav_suffix
 from mandala.services.quota import RESOURCE_TEXT_REPLY, QuotaService
-from mandala.services.telegram_stars import build_premium_invoice_message
+from mandala.services.telegram_stars import build_packs_picker_message
 from mandala.verticals import get_vertical_system_prompt
 from mandala.verticals.client_knowledge import (
     AGENT_CARD_ASTRO_SYSTEM,
@@ -65,8 +65,8 @@ logger = logging.getLogger(__name__)
 
 MSG_NEED_TEXT = "Пока я отвечаю только на текстовые сообщения. Напишите, пожалуйста, текстом."
 MSG_QUOTA_EXCEEDED = (
-    "Лимит бесплатных текстовых ответов на этот месяц исчерпан. "
-    "Попробуйте позже или перейдите на другой тариф."
+    "Сообщения на балансе закончились 🙌 Пополните баланс пакетом — сообщения "
+    "не сгорают, кончатся — докупите ещё:"
 )
 MSG_LLM_UNAVAILABLE = "Сервис ответа временно недоступен. Попробуйте чуть позже."
 
@@ -185,7 +185,7 @@ def handle_inbound_text_llm(
         vertical_id=event.vertical_id,
         resource=RESOURCE_TEXT_REPLY,
     ):
-        return [OutboundMessage(text=MSG_QUOTA_EXCEEDED), build_premium_invoice_message()]
+        return [build_packs_picker_message(text=MSG_QUOTA_EXCEEDED)]
 
     logger.info(
         "funnel llm %s",

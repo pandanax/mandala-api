@@ -28,12 +28,15 @@ class PaymentTransactionsRepository:
         external_id: str,
         amount: Decimal,
         currency: str,
-        plan_id: UUID,
+        plan_id: UUID | None = None,
         raw_payload: dict[str, Any] | None = None,
     ) -> UUID | None:
         """Вставить завершённую транзакцию или вернуть ``None``, если ключ уже есть.
 
-        Уникальность: ``uq_payment_provider_external_id``.
+        Уникальность: ``uq_payment_provider_external_id`` — ключ идемпотентности зачисления.
+        ``plan_id`` опционален: в пакетной модели товар — это пакет сообщений (``payload``),
+        план не участвует (колонка ``plan_id`` nullable); идентификатор пакета кладём в
+        ``raw_payload``.
         """
         row = self._conn.execute(
             text(

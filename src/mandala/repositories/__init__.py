@@ -8,6 +8,7 @@ from mandala.repositories.profiles import ClientProfileDTO, ProfileRepository
 from mandala.repositories.usage import UsageRepository
 from mandala.repositories.user_channel import UserChannelRepository
 from mandala.repositories.users import UsersRepository
+from mandala.repositories.wallet import WalletRepository
 
 __all__ = [
     "ArtifactRepository",
@@ -21,4 +22,5 @@ __all__ = [
     "UsageRepository",
     "UserChannelRepository",
     "UsersRepository",
+    "WalletRepository",
 ]

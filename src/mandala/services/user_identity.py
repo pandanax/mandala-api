@@ -20,6 +20,7 @@ from sqlalchemy.engine import Connection
 
 from mandala.repositories.plans import PlansRepository
 from mandala.repositories.user_channel import UserChannelRepository
+from mandala.services.message_packs import starting_balance
 
 _PLAN_NAME_FREE = "free"
 
@@ -81,11 +82,13 @@ class UserIdentityService:
             raise RuntimeError(msg)
 
         new_id = uuid4()
+        # Стартовый разовый грант сообщений (пакетная модель): выдаётся при создании
+        # пользователя, не возобновляется и не сбрасывается /reset (кошелёк на users).
         self._conn.execute(
             text(
                 """
-                INSERT INTO users (id, vertical_id, current_plan_id, locale)
-                VALUES (:id, :vertical_id, :plan_id, :locale)
+                INSERT INTO users (id, vertical_id, current_plan_id, locale, message_balance)
+                VALUES (:id, :vertical_id, :plan_id, :locale, :message_balance)
                 """
             ),
             {
@@ -93,6 +96,7 @@ class UserIdentityService:
                 "vertical_id": vertical_id,
                 "plan_id": free_id,
                 "locale": locale,
+                "message_balance": starting_balance(),
             },
         )
         self._conn.execute(

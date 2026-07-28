@@ -24,14 +24,16 @@ from mandala.repositories.artifacts import ArtifactRepository
 from mandala.repositories.messages import MessageRepository
 from mandala.services.intent_router import image_prompt_from_user_text
 from mandala.services.quota import RESOURCE_IMAGE_GENERATION, QuotaService
-from mandala.services.telegram_stars import build_premium_invoice_message
 from mandala.services.text_reply import MSG_NEED_TEXT
 
 logger = logging.getLogger(__name__)
 
+# Картинки кошельком сообщений не тарифицируются (решение капитана): на базовом доступе
+# их нет, доступны только при безлимитном промо. Сообщение нейтральное, без счёта —
+# пакеты сообщений картинки не открывают, поэтому кнопки покупки здесь не показываем.
 MSG_IMAGE_PLAN_OR_QUOTA = (
-    "Генерация изображений на вашем тарифе сейчас недоступна "
-    "(лимит исчерпан или не включён). Текстовые ответы работают как обычно."
+    "Генерация изображений сейчас недоступна на вашем доступе. "
+    "Текстовые ответы работают как обычно."
 )
 MSG_IMAGE_FAILED = (
     "Не удалось сгенерировать изображение. Попробуйте позже или переформулируйте запрос."
@@ -94,7 +96,7 @@ def handle_inbound_image_generation(
         vertical_id=event.vertical_id,
         resource=RESOURCE_IMAGE_GENERATION,
     ):
-        return [OutboundMessage(text=MSG_IMAGE_PLAN_OR_QUOTA), build_premium_invoice_message()]
+        return [OutboundMessage(text=MSG_IMAGE_PLAN_OR_QUOTA)]
 
     logger.info(
         "funnel llm %s",

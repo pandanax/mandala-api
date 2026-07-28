@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy.engine import Connection
 
@@ -11,14 +12,17 @@ from mandala.domain.contracts import InboundEvent, OutboundMessage
 from mandala.llm import ImageGenerationClient, TextCompletionClient
 from mandala.observability import op_format
 from mandala.rag.protocol import KbSearchPort
-from mandala.repositories import ProfileRepository
+from mandala.repositories import ProfileRepository, WalletRepository
 from mandala.services.image_reply import handle_inbound_image_generation
 from mandala.services.intent_router import post_intake_intent
 from mandala.services.nav_guarantee import ensure_nav
 from mandala.services.nav_protocol import resolve_nav_action
 from mandala.services.profile_view import build_profile_message
 from mandala.services.scenario_intake import handle_intake_before_llm
-from mandala.services.telegram_stars import build_premium_invoice_message
+from mandala.services.telegram_stars import (
+    build_pack_invoice_message,
+    build_packs_picker_message,
+)
 from mandala.services.text_reply import handle_inbound_text_llm
 from mandala.services.user_identity import UserIdentityService
 from mandala.verticals.client_knowledge import AGENT_CARD_ASTRO_SYSTEM, AGENT_CARD_NATAL_CHART_DATA
@@ -26,10 +30,11 @@ from mandala.verticals.quick_actions import (
     expand_inbound_quick_action,
     is_forecast_menu,
     is_forecast_request,
-    is_premium_topup,
+    is_packs_menu,
     is_reset_button,
     is_show_profile,
     is_system_switch,
+    parse_pack_callback,
 )
 
 logger = logging.getLogger(__name__)
@@ -150,6 +155,12 @@ def handle_inbound(
         event_for_pipeline = event.model_copy(update={"text": "/reset"})
         return handle_intake_before_llm(conn, event_for_pipeline, uid, profile) or []
 
+    # Покупка пакетов сообщений (пакетная монетизация): пикер и счёт конкретного пакета.
+    # Проверяем сырой callback независимо от таблицы разворота quick_actions.
+    packs_out = _route_message_packs(event.vertical_id, event.text, uid=uid, channel=event.channel)
+    if packs_out is not None:
+        return packs_out
+
     event_for_pipeline = event
     expanded = expand_inbound_quick_action(event.vertical_id, event.text)
     if expanded is not None and expanded != event.text:
@@ -161,21 +172,9 @@ def handle_inbound(
             )
         if is_show_profile(expanded):
             return ensure_nav(
-                _handle_show_profile(uid, event.vertical_id, profile.agent_card),
+                _handle_show_profile(conn, uid, event.vertical_id, profile.agent_card),
                 event.vertical_id,
             )
-        if is_premium_topup(expanded):
-            logger.info(
-                "funnel inbound %s",
-                op_format(
-                    vertical_id=event.vertical_id,
-                    user_id=uid,
-                    channel=event.channel,
-                    stage="route",
-                    intent="premium_topup",
-                ),
-            )
-            return [build_premium_invoice_message()]
         if is_forecast_menu(expanded):
             return _handle_forecast_menu()
         event_for_pipeline = event.model_copy(update={"text": expanded})
@@ -276,12 +275,63 @@ def _handle_forecast_menu() -> list[OutboundMessage]:
 
 
 def _handle_show_profile(
-    user_id: object,
+    conn: Connection,
+    user_id: UUID,
     vertical_id: str,
     agent_card: dict[str, Any],
 ) -> list[OutboundMessage]:
-    """Показать пользователю всё, что мы знаем о нём (callback ``__show_profile__``)."""
-    return [build_profile_message(vertical_id, agent_card)]
+    """Показать пользователю всё, что мы знаем о нём (callback ``__show_profile__``).
+
+    Баланс кошелька живёт в ``users`` (не в ``agent_card``) — подтягиваем его отдельно, чтобы
+    в профиле была строка «Осталось сообщений: N» (∞ при промо).
+    """
+    balance = WalletRepository(conn).get_balance(user_id=user_id, vertical_id=vertical_id)
+    return [build_profile_message(vertical_id, agent_card, message_balance=balance)]
+
+
+def _route_message_packs(
+    vertical_id: str,
+    text: str | None,
+    *,
+    uid: UUID,
+    channel: str,
+) -> list[OutboundMessage] | None:
+    """Роутинг покупки пакетов: пикер (``mdl:packs``) или счёт пакета (``mdl:pack:<id>``).
+
+    Возвращает исходящие сообщения, если это pack-действие, иначе ``None`` (обработает
+    обычный конвейер). Счёт — терминальное сообщение; пикер получает fallback-навигацию.
+    """
+    if is_packs_menu(text):
+        logger.info(
+            "funnel inbound %s",
+            op_format(
+                vertical_id=vertical_id,
+                user_id=uid,
+                channel=channel,
+                stage="route",
+                intent="packs_menu",
+            ),
+        )
+        return ensure_nav([build_packs_picker_message()], vertical_id)
+    pack_id = parse_pack_callback(text)
+    if pack_id is None:
+        return None
+    invoice = build_pack_invoice_message(pack_id)
+    if invoice is None:
+        # Неизвестный pack_id — мягко показываем пикер вместо ошибки.
+        return ensure_nav([build_packs_picker_message()], vertical_id)
+    logger.info(
+        "funnel inbound %s",
+        op_format(
+            vertical_id=vertical_id,
+            user_id=uid,
+            channel=channel,
+            stage="route",
+            intent="pack_invoice",
+            pack_id=pack_id,
+        ),
+    )
+    return [invoice]
 
 
 def _handle_system_switch(

@@ -10,7 +10,11 @@ from sqlalchemy.engine import Engine
 from mandala.adapters.telegram.bot_api import TelegramBotApiClient
 from mandala.observability import op_format
 from mandala.services.billing import PostgresBillingProvider
-from mandala.services.telegram_stars import handle_pre_checkout_query, handle_successful_payment
+from mandala.services.telegram_stars import (
+    SuccessfulPaymentOutcome,
+    handle_pre_checkout_query,
+    handle_successful_payment,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +68,7 @@ def process_telegram_billing_update(
         if isinstance(msg.get("successful_payment"), dict):
             with engine.begin() as conn:
                 billing = PostgresBillingProvider(conn)
-                handle_successful_payment(
+                outcome = handle_successful_payment(
                     conn,
                     vertical_id=vertical_id,
                     message=msg,
@@ -75,7 +79,8 @@ def process_telegram_billing_update(
                 op_format(
                     vertical_id=vertical_id,
                     stage="telegram_successful_payment",
-                    outcome="processed",
+                    outcome="duplicate" if outcome.duplicate else "credited",
+                    messages=outcome.credited_messages,
                 ),
             )
             chat = msg.get("chat")
@@ -83,10 +88,19 @@ def process_telegram_billing_update(
                 try:
                     api.send_message(
                         chat_id=int(chat["id"]),
-                        text="План обновлён, спасибо за оплату.",
+                        text=_payment_confirmation_text(outcome),
                     )
                 except Exception:  # noqa: BLE001
                     logger.exception("telegram: send_message после successful_payment")
             return True
 
     return False
+
+
+def _payment_confirmation_text(outcome: SuccessfulPaymentOutcome) -> str:
+    """Дружелюбное подтверждение оплаты с текущим балансом (идемпотентно на повторе)."""
+    balance = outcome.new_balance
+    bal_part = f" Баланс: {balance}." if balance is not None else ""
+    if outcome.duplicate:
+        return f"Эта оплата уже зачтена ранее.{bal_part}"
+    return f"Готово! Зачислено сообщений: {outcome.credited_messages}.{bal_part} Спасибо!"

@@ -1,67 +1,62 @@
-"""Telegram Stars: выставление счёта, pre_checkout, successful_payment → ``activate_plan``."""
+"""Telegram Stars (пакетная модель): счета на пакеты, pre_checkout, зачисление по оплате.
+
+Три пакета сообщений — единый источник (payload ↔ цена ⭐ ↔ +сообщений) в
+``mandala.services.message_packs``. Пикер (три кнопки) показывается при исчерпании баланса,
+в ``/topup`` и в апселле; клик по кнопке пакета → соответствующий счёт Stars. Оплата
+зачисляет сообщения на баланс кошелька **идемпотентно** (см. ``mandala.services.billing``).
+"""
 
 from __future__ import annotations
 
-import os
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Final
 
 from sqlalchemy.engine import Connection
 
 from mandala.domain.contracts import OutboundMessage, StarsInvoice
-from mandala.repositories.plans import PlansRepository
-from mandala.services.billing import (
-    BILLING_PROVIDER_TELEGRAM_STARS,
-    PostgresBillingProvider,
-    apply_plan_change,
-)
+from mandala.repositories.wallet import WalletRepository
+from mandala.services.billing import BILLING_PROVIDER_TELEGRAM_STARS, PostgresBillingProvider
+from mandala.services.message_packs import all_packs, pack_by_id, pack_by_payload
 from mandala.services.user_identity import UserIdentityService
-
-# Совпадает с seed/миграцией ``t19_01_telegram_stars`` (``plans.external_product_id``).
-STARS_INVOICE_PAYLOAD_PREMIUM: Final = "mandala_premium_stars"
-
-# Копирайт счёта premium (видит пользователь при оплате).
-STARS_PREMIUM_TITLE: Final = "Mandala Premium"
-STARS_PREMIUM_DESCRIPTION: Final = (
-    "Расширенный доступ: больше текстовых ответов и генераций изображений в месяц. "
-    "Оплата — Telegram Stars."
-)
-
-# Цена premium в звёздах. Значение — продуктовое, задаётся env-переменной
-# ``MANDALA_STARS_PREMIUM_PRICE`` (см. .env.example); дефолт — для локали/тестов.
-_PRICE_ENV: Final = "MANDALA_STARS_PREMIUM_PRICE"
-_DEFAULT_PREMIUM_PRICE_STARS: Final = 250
+from mandala.verticals.quick_actions import pack_callback
 
 _CHANNEL: Final = "telegram"
 
-
-def premium_price_stars() -> int:
-    """Цена premium в Stars: env ``MANDALA_STARS_PREMIUM_PRICE`` → дефолт (≥ 1)."""
-    raw = os.getenv(_PRICE_ENV)
-    if raw is None:
-        return _DEFAULT_PREMIUM_PRICE_STARS
-    try:
-        value = int(raw)
-    except ValueError:
-        return _DEFAULT_PREMIUM_PRICE_STARS
-    return value if value >= 1 else _DEFAULT_PREMIUM_PRICE_STARS
+# Лид-текст пикера пакетов при исчерпании баланса.
+MSG_PACKS_LEAD: Final = (
+    "Сообщения на балансе закончились 🙌 Выберите пакет — сообщения зачислятся на баланс "
+    "и не сгорают:"
+)
 
 
-def build_premium_invoice_message() -> OutboundMessage:
-    """``OutboundMessage`` со счётом Stars на premium (payload ↔ план согласованы).
+def build_pack_invoice_message(pack_id: str) -> OutboundMessage | None:
+    """``OutboundMessage`` со счётом Stars на конкретный пакет (или ``None`` для неизвестного).
 
-    Единая точка инициации покупки: ``/topup``, апселл-кнопки и показ при исчерпании
-    квоты используют этот билдер, чтобы ``payload`` и цена не расходились.
+    ``payload`` = ``pack.payload`` — по нему pre_checkout/оплата находят пакет и грант.
+    Счёт — терминальное сообщение (текст/кнопки игнорируются каналом).
     """
+    pack = pack_by_id(pack_id)
+    if pack is None:
+        return None
     return OutboundMessage(
         requires_payment=True,
         invoice=StarsInvoice(
-            title=STARS_PREMIUM_TITLE,
-            description=STARS_PREMIUM_DESCRIPTION,
-            payload=STARS_INVOICE_PAYLOAD_PREMIUM,
-            amount_stars=premium_price_stars(),
+            title=pack.title,
+            description=pack.description,
+            payload=pack.payload,
+            amount_stars=pack.price_stars,
         ),
     )
+
+
+def build_packs_picker_message(*, text: str | None = None) -> OutboundMessage:
+    """Сообщение с тремя инлайн-кнопками пакетов (клик → счёт соответствующего пакета)."""
+    buttons = [
+        [{"text": pack.button_label, "callback_data": pack_callback(pack.pack_id)}]
+        for pack in all_packs()
+    ]
+    return OutboundMessage(text=text or MSG_PACKS_LEAD, buttons=buttons)
 
 
 def handle_pre_checkout_query(
@@ -70,7 +65,7 @@ def handle_pre_checkout_query(
     vertical_id: str,
     query: dict[str, Any],
 ) -> tuple[bool, str | None]:
-    """Проверить запрос: валюта XTR, payload → ``plans``; ensure user. Вернуть ``(ok, error)``."""
+    """Проверить запрос: валюта XTR, payload → пакет; ensure user. Вернуть ``(ok, error)``."""
     currency = str(query.get("currency") or "")
     if currency != "XTR":
         return False, "Нужна оплата в Telegram Stars (XTR)."
@@ -79,13 +74,8 @@ def handle_pre_checkout_query(
     if not isinstance(raw_payload, str) or not raw_payload.strip():
         return False, "Пустой счёт."
 
-    pr = PlansRepository(conn)
-    plan_id = pr.fetch_id_by_billing_product(
-        billing_provider=BILLING_PROVIDER_TELEGRAM_STARS,
-        external_product_id=raw_payload,
-    )
-    if plan_id is None:
-        return False, "Тариф не найден."
+    if pack_by_payload(raw_payload) is None:
+        return False, "Пакет не найден."
 
     from_user = query.get("from")
     if not isinstance(from_user, dict) or "id" not in from_user:
@@ -97,14 +87,26 @@ def handle_pre_checkout_query(
     return True, None
 
 
+@dataclass(frozen=True)
+class SuccessfulPaymentOutcome:
+    """Итог обработки ``successful_payment`` для дружелюбного подтверждения пользователю."""
+
+    credited_messages: int
+    new_balance: int | None
+    duplicate: bool
+
+
 def handle_successful_payment(
     conn: Connection,
     *,
     vertical_id: str,
     message: dict[str, Any],
     billing: PostgresBillingProvider | None = None,
-) -> None:
-    """Зафиксировать оплату идемпотентно и применить ``apply_plan_change`` при первом успехе."""
+) -> SuccessfulPaymentOutcome:
+    """Зачислить пакет на баланс **идемпотентно** по ``telegram_payment_charge_id``.
+
+    Повтор той же оплаты не зачисляет второй раз (``duplicate=True``, баланс не меняется).
+    """
     sp = message.get("successful_payment")
     if not isinstance(sp, dict):
         msg = "telegram_stars: нет successful_payment"
@@ -113,6 +115,11 @@ def handle_successful_payment(
     payload = sp.get("invoice_payload")
     if not isinstance(payload, str) or not payload.strip():
         msg = "telegram_stars: пустой invoice_payload"
+        raise ValueError(msg)
+
+    pack = pack_by_payload(payload)
+    if pack is None:
+        msg = "telegram_stars: неизвестный пакет (payload)"
         raise ValueError(msg)
 
     charge = sp.get("telegram_payment_charge_id")
@@ -126,15 +133,6 @@ def handle_successful_payment(
         msg = "telegram_stars: нет from"
         raise ValueError(msg)
     ext_user = str(int(from_user["id"]))
-
-    pr = PlansRepository(conn)
-    plan_id = pr.fetch_id_by_billing_product(
-        billing_provider=BILLING_PROVIDER_TELEGRAM_STARS,
-        external_product_id=payload,
-    )
-    if plan_id is None:
-        msg = "telegram_stars: неизвестный товар (payload)"
-        raise ValueError(msg)
 
     uis = UserIdentityService(conn)
     user_id = uis.get_or_create_user(
@@ -150,26 +148,35 @@ def handle_successful_payment(
         "currency": currency,
         "total_amount": total,
         "invoice_payload": payload,
+        "pack_id": pack.pack_id,
+        "messages": pack.messages,
     }
 
     prov = billing or PostgresBillingProvider(conn)
-    result = prov.activate_plan(
+    result = prov.credit_pack(
         user_id=user_id,
         vertical_id=vertical_id,
-        plan_id=plan_id,
         provider=BILLING_PROVIDER_TELEGRAM_STARS,
         external_id=external_id,
         amount=amount,
         currency=currency,
+        messages=pack.messages,
+        pack_id=pack.pack_id,
         raw_payload=raw_payload,
     )
     if result.status == "user_mismatch":
         msg = "telegram_stars: user_mismatch после оплаты"
         raise RuntimeError(msg)
-    if result.status == "activated":
-        apply_plan_change(
-            conn,
-            user_id=user_id,
-            vertical_id=vertical_id,
-            reason="telegram_stars_purchase",
+    if result.status == "credited":
+        return SuccessfulPaymentOutcome(
+            credited_messages=pack.messages,
+            new_balance=result.new_balance,
+            duplicate=False,
         )
+    # duplicate_external_id — повтор оплаты: не зачисляем, показываем текущий баланс.
+    balance = WalletRepository(conn).get_balance(user_id=user_id, vertical_id=vertical_id)
+    return SuccessfulPaymentOutcome(
+        credited_messages=0,
+        new_balance=balance,
+        duplicate=True,
+    )

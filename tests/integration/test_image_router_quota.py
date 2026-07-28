@@ -38,8 +38,8 @@ def _prime_intake_done(conn: Connection, *, uid: UUID, vertical: str) -> None:
     )
 
 
-def test_image_intent_free_plan_does_not_call_image_client(engine: Engine) -> None:
-    """У free в seed ``image_generation`` = 0 — ``generate`` заглушки не вызывается."""
+def test_image_intent_no_promo_does_not_call_image_client(engine: Engine) -> None:
+    """Без промо картинки недоступны (кошелёк их не тарифицирует) — ``generate`` не вызывается."""
     ext = f"img-router-free-{uuid4()}"
     vertical = "astrology"
 
@@ -123,7 +123,7 @@ def test_text_branch_unaffected_after_image_denied(engine: Engine) -> None:
 
 
 def test_image_success_inserts_generated_artifact(engine: Engine) -> None:
-    """Premium и фейк-клиент с URL: запись в ``generated_artifacts``, поле ``photo``."""
+    """Промо (безлимит) + фейк-клиент с URL: запись в ``generated_artifacts``, поле ``photo``."""
     ext = f"img-art-{uuid4()}"
     vertical = "astrology"
 
@@ -151,16 +151,8 @@ def test_image_success_inserts_generated_artifact(engine: Engine) -> None:
             external_user_id=ext,
         )
         _prime_intake_done(conn, uid=uid, vertical=vertical)
-        conn.execute(
-            text(
-                """
-                UPDATE users
-                SET current_plan_id = (SELECT id FROM plans WHERE name = 'premium' LIMIT 1)
-                WHERE id = :uid
-                """
-            ),
-            {"uid": uid},
-        )
+        # Картинки доступны только при безлимитном промо («вечный пакет»).
+        ProfileRepository(conn).merge_agent_card(uid, {"activated_promo": "TESTME"})
 
     with engine.begin() as conn:
         out = handle_inbound(ev, conn, llm_client=None, image_client=_FakeImg())

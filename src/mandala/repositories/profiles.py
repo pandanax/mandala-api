@@ -106,17 +106,26 @@ class ProfileRepository:
             raise RuntimeError(msg)
 
     def reset_session(self, user_id: UUID) -> None:
-        """Полный сброс ``agent_card`` и ``scenario_state`` к ``{}`` (для ``/reset``).
+        """Сброс профиля для ``/reset``: чистит анкету/историю-в-карточке, но **бережёт промо**.
 
         В отличие от ``merge_*`` — заменяет, а не сливает, чтобы удалить ранее
-        накопленные ключи (имя, дата рождения, флаг ``intake_complete`` и т.п.).
-        Не сбрасывает ``display_name`` и не трогает связи с другими таблицами.
+        накопленные ключи (имя, дата рождения, флаг ``intake_complete``, натальная карта и
+        т.п.). Ключ ``activated_promo`` (безлимитный «вечный пакет») **сохраняется** — по
+        требованию: после ``/reset`` промо остаётся с пользователем (баланс кошелька живёт
+        отдельно в ``users`` и ``/reset`` его вообще не касается). Не сбрасывает
+        ``display_name`` и не трогает связи с другими таблицами.
         """
         self._conn.execute(
             text(
                 """
                 UPDATE client_profiles
-                SET agent_card = '{}'::jsonb,
+                SET agent_card = CASE
+                        WHEN agent_card ? 'activated_promo'
+                        THEN jsonb_build_object(
+                            'activated_promo', agent_card -> 'activated_promo'
+                        )
+                        ELSE '{}'::jsonb
+                    END,
                     scenario_state = '{}'::jsonb,
                     updated_at = now()
                 WHERE user_id = :user_id

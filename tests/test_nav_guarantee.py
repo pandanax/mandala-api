@@ -4,11 +4,18 @@ from __future__ import annotations
 
 from mandala.domain.contracts import OutboundMessage
 from mandala.services.nav_guarantee import ensure_nav, fallback_nav_buttons
-from mandala.services.telegram_stars import build_premium_invoice_message
+from mandala.services.telegram_stars import build_pack_invoice_message
 
 
 def _flat_callbacks(msg: OutboundMessage) -> list[str]:
     return [c.get("callback_data", "") for row in (msg.buttons or []) for c in row]
+
+
+def _invoice() -> OutboundMessage:
+    """Терминальное сообщение-счёт (пакет сообщений) для проверок ensure_nav."""
+    msg = build_pack_invoice_message("100")
+    assert msg is not None
+    return msg
 
 
 def test_fallback_buttons_known_verticals_and_unknown() -> None:
@@ -63,8 +70,8 @@ def test_ensure_nav_preserves_llm_nav_buttons() -> None:
 
 
 def test_ensure_nav_targets_last_non_invoice_message() -> None:
-    # Ответ «лимит исчерпан + счёт»: навигацию крепим к тексту, счёт остаётся терминальным.
-    msgs = [OutboundMessage(text="Лимит исчерпан."), build_premium_invoice_message()]
+    # Ответ «текст + счёт»: навигацию крепим к тексту, счёт остаётся терминальным.
+    msgs = [OutboundMessage(text="Сообщения закончились."), _invoice()]
     out = ensure_nav(msgs, "astrology")
     assert out[0].buttons is not None  # текст получил навигацию
     assert out[1].invoice is not None  # счёт не тронут
@@ -84,7 +91,7 @@ def test_ensure_nav_noop_for_unknown_vertical_and_empty() -> None:
 
 def test_ensure_nav_skips_message_without_text_or_photo() -> None:
     # Единственное сообщение — счёт (нет текста/фото): навигацию вешать некуда.
-    out = ensure_nav([build_premium_invoice_message()], "astrology")
+    out = ensure_nav([_invoice()], "astrology")
     assert out[0].buttons is None
 
 

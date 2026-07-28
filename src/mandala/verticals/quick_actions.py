@@ -76,8 +76,6 @@ _ASTROLOGY: dict[str, str] = {
     ),
     # Профиль и сброс
     "mdl:profile": "__show_profile__",
-    # Апселл premium (оплата Telegram Stars)
-    "mdl:premium": "__premium_topup__",
 }
 
 # Тексты кнопок ReplyKeyboard → код быстрого действия
@@ -109,15 +107,44 @@ _THERAPY: dict[str, str] = {
     "mdl_th:vent": "Хочется выговориться и привести мысли в порядок.",
     "mdl_th:mood": "Сейчас тяжело с настроением — помоги разобраться, с чего начать.",
     "mdl_th:anx": "Чувствую сильную тревогу — помоги структурировать, что происходит.",
-    # Апселл premium (оплата Telegram Stars)
-    "mdl:premium": "__premium_topup__",
 }
 
-# Код-триггер апселла premium (не передаётся в LLM; в handler → счёт Stars).
-PREMIUM_TOPUP_CODE = "__premium_topup__"
+# --- Покупка пакетов сообщений (пакетная монетизация) -----------------------------
+# callback_data кнопки «Купить сообщения» (открывает пикер пакетов). Общий для вертикалей.
+PACKS_MENU_CALLBACK = "mdl:packs"
+# Легаси-callback старой кнопки premium — у существующих пользователей мог «залипнуть»
+# в прежних сообщениях; трактуем его как открытие пикера пакетов (мягкая совместимость).
+_LEGACY_PREMIUM_CALLBACK = "mdl:premium"
+_PACKS_MENU_CALLBACKS = frozenset({PACKS_MENU_CALLBACK, _LEGACY_PREMIUM_CALLBACK})
 
-# callback_data кнопки апселла premium (общий для всех вертикалей).
-PREMIUM_BUTTON_CALLBACK = "mdl:premium"
+# callback_data кнопки конкретного пакета: ``mdl:pack:<pack_id>`` (см. message_packs).
+_PACK_CALLBACK_PREFIX = "mdl:pack:"
+
+
+def pack_menu_callback() -> str:
+    """callback_data кнопки, открывающей пикер пакетов."""
+    return PACKS_MENU_CALLBACK
+
+
+def pack_callback(pack_id: str) -> str:
+    """callback_data кнопки конкретного пакета по ``pack_id``."""
+    return f"{_PACK_CALLBACK_PREFIX}{pack_id}"
+
+
+def is_packs_menu(text: str | None) -> bool:
+    """True, если действие — открыть пикер пакетов (в т.ч. легаси-кнопка premium)."""
+    return text is not None and text.strip() in _PACKS_MENU_CALLBACKS
+
+
+def parse_pack_callback(text: str | None) -> str | None:
+    """Вернуть ``pack_id`` из ``mdl:pack:<id>`` или ``None``, если это не кнопка пакета."""
+    if text is None:
+        return None
+    raw = text.strip()
+    if not raw.startswith(_PACK_CALLBACK_PREFIX):
+        return None
+    pid = raw[len(_PACK_CALLBACK_PREFIX) :].strip()
+    return pid or None
 
 
 def expand_inbound_quick_action(vertical_id: str, text: str | None) -> str | None:
@@ -162,11 +189,6 @@ def is_show_profile(text: str | None) -> bool:
 def is_forecast_menu(text: str | None) -> bool:
     """Вернуть True если нажата кнопка «Прогноз» (показать подменю периодов)."""
     return text is not None and text.strip() == FORECAST_MENU_CODE
-
-
-def is_premium_topup(text: str | None) -> bool:
-    """Вернуть True если действие — апселл premium (показать счёт Telegram Stars)."""
-    return text is not None and text.strip() == PREMIUM_TOPUP_CODE
 
 
 # Слова-интенты «прогноз» в свободном тексте и слова конкретного периода.

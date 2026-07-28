@@ -333,27 +333,68 @@ text pipeline (`handle_inbound` → `text_reply`) unchanged — the reply logic 
   the default** (`STT_LANGUAGE=ru`, empty = auto). Not configured (no URL+key) → voice degrades
   softly. Env documented in `.env.example`.
 
-## Telegram Stars: purchasing premium (invoice → activation)
+## Monetization: prepaid message wallet + Telegram Stars packs (NO subscription)
 
-Full round-trip: invoice → `pre_checkout_query` → `successful_payment` → `activate_plan`.
-The receive half (pre_checkout/successful_payment, idempotent activation) is
-`services/telegram_stars.py` + `adapters/telegram/billing_updates.py`; the **send** half
-(invoice creation) is the piece added here.
+Model is a **prepaid message wallet**, not monthly limits/subscription. Each user has a plain
+integer **balance** of messages; **every LLM text reply deducts 1**; instant deterministic
+renders (`/natal`, `/matrix`, `/numerology`, `/profile`, `/help`) never charge (spend point
+unchanged: `text_reply` only). Balance is **not time-based, never resets by time**, and
+**survives `/reset`**. New user gets a one-time starting grant (`MANDALA_MESSAGE_WALLET_START`,
+default 20). At balance 0 the bot shows **three pack buttons**; buying a pack **adds** messages
+(never expires).
 
-- **Single source of truth for the invoice** is `telegram_stars.build_premium_invoice_message()`:
-  it fills `OutboundMessage.invoice` (`StarsInvoice` in `domain/contracts.py`) with
-  `payload=STARS_INVOICE_PAYLOAD_PREMIUM` (= `plans.external_product_id`, migration
-  `t19_01`) and `amount_stars=premium_price_stars()`. Reuse it everywhere so payload↔plan and
-  price never diverge. Price is a product param: env `MANDALA_STARS_PREMIUM_PRICE` (default 250).
-- **Delivery**: `outbound_send.deliver_outbound_messages` sees `msg.invoice` and calls
-  `bot_api.send_invoice` (currency `XTR`, empty `provider_token` = Stars). An invoice message
-  is **terminal** — its text/photo/buttons are ignored (the invoice carries title/desc/price).
-  Channels without Stars ignore the field (safe degrade).
-- **Initiation points** (all just show the invoice, no reply-logic changes): `/topup`
-  (`scenario_intake.py`), the `⭐ Premium` upsell button in `verticals/post_intake_offers.py`
-  (callback `mdl:premium` → quick-action code `__premium_topup__` → routed in `domain/handler.py`
-  next to `is_show_profile`), and the quota-exceeded branches in
-  `services/text_reply.py` / `image_reply.py` (append the invoice after the limit message).
+- **Balance lives on `users.message_balance`** (column, migration `t20_01_message_wallet`), keyed
+  by `(user, vertical)` — one `users` row per vertical, so multi-bot balances stay separate.
+  Repo: `repositories/wallet.py` (`WalletRepository`). Atomic spend:
+  `UPDATE … SET message_balance = message_balance - 1 WHERE … AND message_balance >= 1 RETURNING …`
+  (no negative, no races — the dual condition is in the `UPDATE`). New-user grant is in
+  `user_identity.get_or_create_user` (column server_default is 0). `/reset` never touches `users`.
+- **Quota = wallet** (`services/quota.py`): `can_consume`/`consume` are resource-aware — `text_reply`
+  reads/decrements the wallet; **promo bypasses everything (unlimited)**; **images are NOT charged
+  from the wallet** (captain's decision) — `image_generation` is allowed only under promo, else
+  denied, wallet untouched (image path stays neutral/working, never tariffed). The consume point
+  is still after a successful reply, in the same transaction.
+- **Promo = "forever pack" (unlimited)**, unchanged in spirit (`services/promo.py`,
+  `is_promo_active`). It lives in `client_profiles.agent_card[activated_promo]` and now
+  **survives `/reset`**: `ProfileRepository.reset_session` deliberately preserves that one key
+  (rebuilds `agent_card` keeping only `activated_promo`), wiping everything else. Regression:
+  `tests/integration/test_wallet_and_reset.py` (reset keeps balance+promo, clears intake/history).
+- **Three packs — single source of truth** `services/message_packs.py` (`payload ↔ ⭐-price ↔
+  +messages`): `100`/`300`/`1000` → `mandala_pack_{id}`, defaults `1⭐→100 / 2⭐→300 / 5⭐→1000`.
+  Prices/grants are env-parametrizable (`MANDALA_PACK_{100,300,1000}_{PRICE,MESSAGES}`); the
+  numeric `pack_id`/payload suffix is a **stable** key (do not change on price/grant edits — it's
+  the product key in the purchase journal). `pack_by_id`/`pack_by_payload`/`all_packs`.
+- **Invoices & picker** (`services/telegram_stars.py`): `build_pack_invoice_message(pack_id)` →
+  `OutboundMessage.invoice` (`StarsInvoice`, currency `XTR`, empty `provider_token`, terminal
+  message); `build_packs_picker_message(text=…)` → one message with the 3 pack buttons
+  (`mdl:pack:<id>`). Delivery still via `outbound_send.deliver_outbound_messages` →
+  `bot_api.send_invoice`. Callback helpers/parse in `verticals/quick_actions.py`
+  (`PACKS_MENU_CALLBACK=mdl:packs`, `pack_callback`, `parse_pack_callback`, `is_packs_menu` —
+  also treats legacy `mdl:premium` as "open picker").
+- **Idempotent credit — money, mandatory** (`services/billing.py`
+  `PostgresBillingProvider.credit_pack`): `pre_checkout_query` → `successful_payment` resolves the
+  pack by payload, then inserts `payment_transactions` (idempotent on `UNIQUE(provider,
+  external_id)` = Telegram `telegram_payment_charge_id`) **and** `WalletRepository.add_balance` in
+  the same DB transaction. A replayed payment → `duplicate_external_id`, balance unchanged, no
+  double credit. `handle_successful_payment` returns a `SuccessfulPaymentOutcome` (credited /
+  new balance / duplicate) so `billing_updates.py` shows a balance-aware confirmation.
+- **Where the picker is shown** (all replace the old premium invoice): `/topup`
+  (`scenario_intake.py`), the `💬 Купить сообщения` button in `verticals/post_intake_offers.py`
+  (`mdl:packs`), and the balance-exhausted branch in `services/text_reply.py`. The image branch
+  (`image_reply.py`) shows a neutral "images unavailable" message with **no** purchase CTA
+  (packs are text credits, don't unlock images). Pack callbacks route in `domain/handler.py`
+  (`_route_message_packs`, before quick-action expansion). Profile (`services/profile_view.py`)
+  shows «Осталось сообщений: N» (∞ under promo) — balance passed in from the conn-aware callers.
+- **Old monthly machinery is retired, not dropped**: `plans`/`plan_limits`/`usage_counters` tables
+  and `billing_period` stay (migration chain/downgrade intact) but are unused by the runtime;
+  `users.current_plan_id` still points at `free` (NOT NULL FK) — we just no longer read
+  `plan_limits`. Migration `t20_01` backfills existing users to the starting grant (pre-existing
+  `premium` subscribers → 1000, so no paid user is downgraded); promo unlimited is preserved.
+- **Tests**: offline `tests/test_message_packs.py`, `tests/test_telegram_stars_invoice.py`,
+  `tests/test_billing_provider.py` (credit_pack idempotency, mocks), `tests/test_quota_promo_bypass.py`
+  (wallet consume + promo + image-not-charged); DB-gated `tests/integration/test_quota_service.py`
+  (start grant, decrement, **parallel atomicity**), `test_telegram_stars_billing.py` +
+  `test_billing_credit_pack.py` (**idempotent credit per pack**), `test_wallet_and_reset.py`.
 
 ## Observability: metrics dashboard + logs (YC Monitoring)
 

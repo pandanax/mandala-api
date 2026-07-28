@@ -24,6 +24,7 @@ from sqlalchemy.engine import Connection
 from mandala.domain.contracts import InboundEvent, OutboundMessage
 from mandala.repositories.messages import MessageRepository
 from mandala.repositories.profiles import ClientProfileDTO, ProfileRepository
+from mandala.repositories.wallet import WalletRepository
 from mandala.services.chart_render import (
     render_destiny_matrix_message,
     render_natal_chart_message,
@@ -48,7 +49,7 @@ from mandala.services.intake_flow import (
 )
 from mandala.services.nav_guarantee import ensure_nav, fallback_nav_buttons
 from mandala.services.profile_view import build_profile_message
-from mandala.services.telegram_stars import build_premium_invoice_message
+from mandala.services.telegram_stars import build_packs_picker_message
 from mandala.services.term_linkify import linkify_numerology_terms
 from mandala.verticals.client_knowledge import (
     AGENT_CARD_ASTRO_SYSTEM,
@@ -774,7 +775,8 @@ def _handle_command(
         profiles_repo = ProfileRepository(conn)
         fresh = profiles_repo.get_by_user_id(user_id)
         ac = dict(fresh.agent_card) if fresh else {}
-        return [build_profile_message(event.vertical_id, ac)]
+        balance = WalletRepository(conn).get_balance(user_id=user_id, vertical_id=event.vertical_id)
+        return [build_profile_message(event.vertical_id, ac, message_balance=balance)]
 
     if command in _PROMO_COMMANDS:
         raw_text = (event.text or "").strip()
@@ -786,13 +788,12 @@ def _handle_command(
 
     if command in _TOPUP_COMMANDS:
         return [
-            OutboundMessage(
+            build_packs_picker_message(
                 text=(
-                    "Premium снимает лимиты: больше текстовых ответов и генераций "
-                    "изображений в месяц. Оплата — Telegram Stars."
+                    "Пополнение баланса сообщений. Выберите пакет — сообщения зачислятся "
+                    "на баланс и не сгорают:"
                 )
-            ),
-            build_premium_invoice_message(),
+            )
         ]
 
     if command in _HARD_RESET_COMMANDS:

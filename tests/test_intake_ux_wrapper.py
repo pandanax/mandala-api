@@ -91,11 +91,22 @@ class _FakeMessages:
         return n
 
 
+class _FakeWallet:
+    """Кошелёк-заглушка: /profile читает баланс, БД в офлайн-тестах нет."""
+
+    def __init__(self, _conn: Any) -> None:
+        pass
+
+    def get_balance(self, *, user_id: UUID, vertical_id: str) -> int | None:
+        return 20
+
+
 @pytest.fixture
 def store(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     s: dict[str, Any] = {"profiles": {}, "messages": []}
     monkeypatch.setattr(scenario_intake, "ProfileRepository", lambda conn: _FakeProfiles(conn))
     monkeypatch.setattr(scenario_intake, "MessageRepository", lambda conn: _FakeMessages(conn))
+    monkeypatch.setattr(scenario_intake, "WalletRepository", _FakeWallet)
     return s
 
 

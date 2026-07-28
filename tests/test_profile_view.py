@@ -59,3 +59,26 @@ def test_no_natal_command_without_natal_data() -> None:
     card = {"birth_date": "07.01.1987"}
     text = build_profile_message("astrology", card).text
     assert "/natal" not in _tokens(text)
+
+
+def test_profile_shows_message_balance_line() -> None:
+    """Пакетная модель: в профиле строка «Осталось сообщений: N»."""
+    text = build_profile_message("astrology", {"birth_date": "07.01.1987"}, message_balance=7).text
+    assert "Осталось сообщений:" in (text or "")
+    assert "7" in (text or "")
+
+
+def test_profile_promo_shows_unlimited_not_number() -> None:
+    """Активное промо («вечный пакет») → ∞/безлимит, число баланса не показываем."""
+    card = {"birth_date": "07.01.1987", "activated_promo": "TESTME"}
+    text = build_profile_message("astrology", card, message_balance=3).text or ""
+    assert "∞" in text
+    assert "безлимит" in text.lower()
+    assert "Осталось сообщений:" not in text
+
+
+def test_profile_balance_line_omitted_when_unknown() -> None:
+    """Без баланса и без промо строку баланса опускаем (безопасный дефолт)."""
+    text = build_profile_message("astrology", {"birth_date": "07.01.1987"}).text or ""
+    assert "Осталось сообщений:" not in text
+    assert "∞" not in text

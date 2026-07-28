@@ -4,8 +4,8 @@
 """
 
 from mandala.services.billing import (
-    ActivatePlanResult,
     BillingProvider,
+    CreditPackResult,
     PostgresBillingProvider,
 )
 from mandala.services.quota import (
@@ -17,8 +17,8 @@ from mandala.services.quota import (
 from mandala.services.user_identity import UserIdentityService
 
 __all__ = [
-    "ActivatePlanResult",
     "BillingProvider",
+    "CreditPackResult",
     "PostgresBillingProvider",
     "RESOURCE_IMAGE_GENERATION",
     "RESOURCE_TEXT_REPLY",

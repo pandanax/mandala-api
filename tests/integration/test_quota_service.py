@@ -1,4 +1,7 @@
-"""Интеграционные тесты сервиса квот (тикет 7; нужны ``DATABASE_URL`` и Alembic)."""
+"""Интеграция: кошельковый ``QuotaService`` — старт, списание, атомарность, промо, картинки.
+
+Нужны ``DATABASE_URL`` и применённые миграции (Alembic). Пропускается без ``DATABASE_URL``.
+"""
 
 from __future__ import annotations
 
@@ -10,15 +13,15 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
 
-from mandala.billing_period import current_billing_period
 from mandala.db.engine import create_engine_from_env
-from mandala.repositories import UsageRepository
+from mandala.repositories import ProfileRepository, WalletRepository
+from mandala.services.message_packs import starting_balance
 from mandala.services.quota import (
-    REASON_LIMIT_EXCEEDED,
     RESOURCE_IMAGE_GENERATION,
     RESOURCE_TEXT_REPLY,
     QuotaService,
 )
+from mandala.services.user_identity import UserIdentityService
 
 pytestmark = [
     pytest.mark.integration,
@@ -35,17 +38,17 @@ def _free_plan_id(conn: Connection) -> UUID:
     return val
 
 
-def _insert_user(conn: Connection, *, vertical_id: str = "astrology") -> UUID:
+def _insert_user(conn: Connection, *, balance: int, vertical_id: str = "astrology") -> UUID:
     uid = uuid4()
     pid = _free_plan_id(conn)
     conn.execute(
         text(
             """
-            INSERT INTO users (id, vertical_id, current_plan_id)
-            VALUES (:id, :vid, :pid)
+            INSERT INTO users (id, vertical_id, current_plan_id, message_balance)
+            VALUES (:id, :vid, :pid, :bal)
             """
         ),
-        {"id": uid, "vid": vertical_id, "pid": pid},
+        {"id": uid, "vid": vertical_id, "pid": pid, "bal": balance},
     )
     ext = f"ext-{uid.hex[:12]}"
     conn.execute(
@@ -65,95 +68,83 @@ def engine() -> Engine:
     return create_engine_from_env()
 
 
-def test_consume_parallel_does_not_exceed_monthly_limit(engine: Engine) -> None:
-    """Несколько параллельных ``consume`` не превышают лимит ``plan_limits`` за период."""
-    narrow_limit = 7
+def test_new_user_gets_starting_balance(engine: Engine) -> None:
+    """Разовый стартовый грант при создании пользователя (пакетная модель)."""
+    ext = f"start-{uuid4()}"
     with engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                UPDATE plan_limits
-                SET limit_per_period = :lim
-                WHERE plan_id = (SELECT id FROM plans WHERE name = 'free')
-                  AND resource = :res
-                  AND period = 'month'::plan_limit_period
-                """
-            ),
-            {"lim": narrow_limit, "res": RESOURCE_TEXT_REPLY},
+        uid = UserIdentityService(conn).get_or_create_user(
+            vertical_id="astrology", channel="telegram", external_user_id=ext
         )
+        bal = WalletRepository(conn).get_balance(user_id=uid, vertical_id="astrology")
+    assert bal == starting_balance()
 
-    try:
-        uid: UUID | None = None
+
+def test_consume_decrements_until_empty_then_denies(engine: Engine) -> None:
+    with engine.begin() as conn:
+        uid = _insert_user(conn, balance=3)
+    for _ in range(3):
         with engine.begin() as conn:
-            uid = _insert_user(conn)
-        assert uid is not None
+            assert (
+                QuotaService(conn)
+                .consume(user_id=uid, vertical_id="astrology", resource=RESOURCE_TEXT_REPLY)
+                .allowed
+            )
+    with engine.begin() as conn:
+        denied = QuotaService(conn).consume(
+            user_id=uid, vertical_id="astrology", resource=RESOURCE_TEXT_REPLY
+        )
+        assert denied.allowed is False
+        assert WalletRepository(conn).get_balance(user_id=uid, vertical_id="astrology") == 0
 
-        def one_consume() -> bool:
-            with engine.begin() as c:
-                return (
-                    QuotaService(c)
-                    .consume(
-                        user_id=uid,
-                        vertical_id="astrology",
-                        resource=RESOURCE_TEXT_REPLY,
-                    )
-                    .allowed
-                )
 
-        attempts = 40
-        with ThreadPoolExecutor(max_workers=16) as pool:
-            futures = [pool.submit(one_consume) for _ in range(attempts)]
-            oks = sum(1 for f in as_completed(futures) if f.result())
+def test_consume_parallel_does_not_go_negative(engine: Engine) -> None:
+    """40 параллельных списаний при балансе 7 → ровно 7 успешных, баланс не уходит в минус."""
+    balance = 7
+    with engine.begin() as conn:
+        uid = _insert_user(conn, balance=balance)
 
-        assert oks == narrow_limit
+    def one_consume() -> bool:
+        with engine.begin() as c:
+            return (
+                QuotaService(c)
+                .consume(user_id=uid, vertical_id="astrology", resource=RESOURCE_TEXT_REPLY)
+                .allowed
+            )
 
-        period = current_billing_period()
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        futures = [pool.submit(one_consume) for _ in range(40)]
+        oks = sum(1 for f in as_completed(futures) if f.result())
+
+    assert oks == balance
+    with engine.begin() as conn:
+        assert WalletRepository(conn).get_balance(user_id=uid, vertical_id="astrology") == 0
+
+
+def test_image_generation_not_charged_and_denied_without_promo(engine: Engine) -> None:
+    """Картинки кошельком не тарифицируются: отказ без промо, баланс не меняется."""
+    with engine.begin() as conn:
+        uid = _insert_user(conn, balance=5)
+        r = QuotaService(conn).consume(
+            user_id=uid, vertical_id="astrology", resource=RESOURCE_IMAGE_GENERATION
+        )
+        assert r.allowed is False
+        assert WalletRepository(conn).get_balance(user_id=uid, vertical_id="astrology") == 5
+
+
+def test_promo_is_unlimited_and_does_not_charge(engine: Engine) -> None:
+    """Активное промо → безлимит: списаний нет, баланс не меняется (даже нулевой)."""
+    with engine.begin() as conn:
+        uid = _insert_user(conn, balance=0)
+        pr = ProfileRepository(conn)
+        pr.ensure_row(user_id=uid, vertical_id="astrology")
+        pr.merge_agent_card(uid, {"activated_promo": "TESTME"})
+
+    for _ in range(5):
         with engine.begin() as conn:
-            locked = UsageRepository(conn).fetch_count_for_update(
-                user_id=uid,
-                vertical_id="astrology",
-                billing_period=period,
-                resource=RESOURCE_TEXT_REPLY,
+            assert (
+                QuotaService(conn)
+                .consume(user_id=uid, vertical_id="astrology", resource=RESOURCE_TEXT_REPLY)
+                .allowed
             )
-            assert locked == narrow_limit
-    finally:
-        with engine.begin() as conn:
-            conn.execute(
-                text(
-                    """
-                    UPDATE plan_limits
-                    SET limit_per_period = 20
-                    WHERE plan_id = (SELECT id FROM plans WHERE name = 'free')
-                      AND resource = :res
-                      AND period = 'month'::plan_limit_period
-                    """
-                ),
-                {"res": RESOURCE_TEXT_REPLY},
-            )
-
-
-def test_image_generation_limit_zero_denies_and_counter_stays_zero(engine: Engine) -> None:
-    """Лимит 0 для ``image_generation`` на ``free``: отказ, счётчик не растёт."""
-    with engine.connect() as conn:
-        trans = conn.begin()
-        try:
-            uid = _insert_user(conn)
-            svc = QuotaService(conn)
-            r = svc.consume(
-                user_id=uid,
-                vertical_id="astrology",
-                resource=RESOURCE_IMAGE_GENERATION,
-            )
-            assert not r.allowed
-            assert r.reason == REASON_LIMIT_EXCEEDED
-
-            period = current_billing_period()
-            cnt = UsageRepository(conn).fetch_count_for_update(
-                user_id=uid,
-                vertical_id="astrology",
-                billing_period=period,
-                resource=RESOURCE_IMAGE_GENERATION,
-            )
-            assert cnt == 0
-        finally:
-            trans.rollback()
+    with engine.begin() as conn:
+        assert WalletRepository(conn).get_balance(user_id=uid, vertical_id="astrology") == 0

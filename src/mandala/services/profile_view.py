@@ -32,12 +32,21 @@ def _profile_buttons(vertical_id: str) -> list[list[dict[str, str]]]:
     return rows
 
 
-def build_profile_message(vertical_id: str, agent_card: dict[str, Any]) -> OutboundMessage:
+def build_profile_message(
+    vertical_id: str,
+    agent_card: dict[str, Any],
+    *,
+    message_balance: int | None = None,
+) -> OutboundMessage:
     """Собрать сообщение «Ваш профиль» из ``agent_card``.
 
     Под профилем — инлайн-кнопка «Редактировать» (запускает стандартный флоу правки
     по полям с подтверждениями) и быстрый доступ к натальной карте / Карте судьбы.
     Постоянной нижней reply-клавиатуры нет.
+
+    ``message_balance`` — баланс кошелька сообщений (пакетная модель): показываем строкой
+    «Осталось сообщений: N». При активном промо («вечный пакет») — «∞ (безлимит)», число не
+    показываем. Если баланс не передан и промо нет — строку опускаем (безопасный дефолт).
     """
     lines: list[str] = ["👤 **Ваш профиль**", ""]
 
@@ -87,11 +96,21 @@ def build_profile_message(vertical_id: str, agent_card: dict[str, Any]) -> Outbo
         lines.append(f"🔢 **Нумерология рассчитана**{lp_s} — открыть: /numerology")
 
     promo = agent_card.get("activated_promo")
-    if isinstance(promo, str) and promo.strip():
+    promo_active = isinstance(promo, str) and bool(promo.strip())
+
+    # Баланс кошелька сообщений. Промо = «вечный пакет» → безлимит (∞), число не показываем.
+    if promo_active:
         lines.append("")
-        lines.append(f"✅ Промо-код активирован: `{promo}` — подписка без ограничений")
+        lines.append("💬 **Сообщения:** ∞ (безлимит)")
+    elif message_balance is not None:
+        lines.append("")
+        lines.append(f"💬 **Осталось сообщений:** {message_balance}")
+
+    if promo_active:
+        lines.append("")
+        lines.append(f"✅ Промо-код активирован: `{promo}` — вечный пакет (безлимит навсегда)")
 
     lines.append("")
-    lines.append("Полный сброс данных — команда /reset (в меню бота).")
+    lines.append("Пополнить баланс — /topup. Полный сброс данных — /reset (в меню бота).")
 
     return OutboundMessage(text="\n".join(lines), buttons=_profile_buttons(vertical_id))
