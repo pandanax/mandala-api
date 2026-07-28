@@ -58,6 +58,28 @@ def test_render_contains_all_reference_blocks() -> None:
     assert "Снаружи Близнецы, внутри Водолей" in text
 
 
+def test_aspect_points_translated_no_latin_names_leak() -> None:
+    """В аспектах имена дополнительных точек переведены (нет сырых kerykeion-имён)."""
+    chart = _chart()
+    names: set[str] = set()
+    for asp in chart["aspects"]:
+        names.add(asp["planet1"])
+        names.add(asp["planet2"])
+    # Ни одно имя точки не приходит латиницей (MC/IC в скобках — часть русского перевода).
+    for raw in (
+        "Ascendant",
+        "Descendant",
+        "Chiron",
+        "Imum_Coeli",
+        "Medium_Coeli",
+        "Mean_Lilith",
+        "True_North_Lunar_Node",
+    ):
+        assert raw not in names, f"непереведённое имя точки протекло: {raw}"
+    assert "Хирон" in names
+    assert "Асцендент" in names
+
+
 def test_render_house_shown_as_number_not_kerykeion_name() -> None:
     """Дома в рендере — числом (10 дом), а не сырым 'Tenth_House'."""
     text = render_natal_chart_text(_chart())

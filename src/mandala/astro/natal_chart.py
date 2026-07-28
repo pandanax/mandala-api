@@ -45,6 +45,34 @@ _PLANET_RU: dict[str, str] = {
     "Pluto": "Плутон",
 }
 
+# Дополнительные точки/оси, которые kerykeion выдаёт в аспектах (не входят в 10 планет).
+# Имена приходят в разных вариантах между версиями (Mean_/True_, Medium_Coeli/MC,
+# *_Lunar_Node) — покрываем все, чтобы в аспектах не протекала латиница.
+_POINT_RU: dict[str, str] = {
+    "Ascendant": "Асцендент",
+    "Descendant": "Десцендент",
+    "Medium_Coeli": "Середина Неба (MC)",
+    "Mc": "Середина Неба (MC)",
+    "Imum_Coeli": "Дно Неба (IC)",
+    "Ic": "Дно Неба (IC)",
+    "Chiron": "Хирон",
+    "Mean_Lilith": "Чёрная Луна (Лилит)",
+    "True_Lilith": "Чёрная Луна (Лилит)",
+    "Lilith": "Чёрная Луна (Лилит)",
+    "Mean_Node": "Северный узел",
+    "True_Node": "Северный узел",
+    "North_Node": "Северный узел",
+    "Mean_North_Node": "Северный узел",
+    "True_North_Node": "Северный узел",
+    "Mean_North_Lunar_Node": "Северный узел",
+    "True_North_Lunar_Node": "Северный узел",
+    "Mean_South_Node": "Южный узел",
+    "True_South_Node": "Южный узел",
+    "South_Node": "Южный узел",
+    "Mean_South_Lunar_Node": "Южный узел",
+    "True_South_Lunar_Node": "Южный узел",
+}
+
 _ASPECT_RU: dict[str, str] = {
     "conjunction": "соединение",
     "opposition": "оппозиция",
@@ -165,7 +193,9 @@ def _sign_ru(sign: str) -> str:
 
 
 def _planet_ru(name: str) -> str:
-    return _PLANET_RU.get(name, name)
+    if name in _PLANET_RU:
+        return _PLANET_RU[name]
+    return _POINT_RU.get(name, name)
 
 
 def _aspect_ru(name: str) -> str:
