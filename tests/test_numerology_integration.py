@@ -7,7 +7,7 @@
 * при сохранении профиля ``numerology_data`` считается из ИМЕНИ+ДАТЫ и пишется в agent_card;
 * ``/numerology`` — мгновенный рендер из БД (без LLM), с инлайн-навигацией;
 * без имени команда деградирует (числа даты есть, числа имени — нет), не падает;
-* в ``/profile`` есть блок «🔢 Нумерология … /numerology».
+* в ``/profile`` есть кнопка «🔢 Нумерология» (/numerology).
 """
 
 from __future__ import annotations
@@ -189,8 +189,6 @@ def test_profile_shows_numerology_block_and_button(store: dict[str, Any]) -> Non
         _drive_full_intake(store, uid)
 
     profile = _run(store, uid, "/profile")
-    text = " ".join(m.text or "" for m in profile)
-    assert "Нумерология рассчитана" in text
-    assert "/numerology" in text
+    # Профиль = только данные анкеты; доступ к нумерологии — через кнопку, не в теле.
     codes = [c.get("callback_data", "") for m in profile for row in (m.buttons or []) for c in row]
     assert "/numerology" in codes

@@ -109,10 +109,21 @@ def test_help_message_has_photo_bold_menu_and_inline_nav() -> None:
     msg = out[0]
     assert msg.photo is not None and msg.photo.startswith("https://")
     assert msg.text is not None
+    text = msg.text
     # Жирный оформлен markdown-ом **…**, который delivery-слой превратит в <b> HTML.
-    assert "**Mandala**" in msg.text
-    assert "**Навигация**" in msg.text
-    assert "**Команды**" in msg.text
+    assert "**Mandala**" in text
+    # Хелп ясно доносит 4 возможности: профиль, наталка, Матрица, нумерология.
+    assert "**Профиль**" in text
+    assert "**Натальная карта**" in text
+    assert "**Карта судьбы**" in text
+    assert "**Нумерология**" in text
+    assert "**Команды**" in text
+    # Команды рестарта описаны понятно.
+    assert "/start" in text
+    assert "/reset" in text
+    assert "/numerology" in text
+    # Никакого _..._ italic — Telegram-рендер его не поддерживает (потекут подчёркивания).
+    assert "_" not in text
     # Постоянной нижней клавиатуры нет; вместо неё — инлайн-навигация под сообщением.
     assert msg.reply_keyboard is None
     assert msg.buttons is not None and len(msg.buttons) > 0
@@ -238,5 +249,5 @@ def test_build_profile_message_renders_fields_without_reply_keyboard() -> None:
     assert "1990-01-01" in msg.text
     # Постоянной нижней клавиатуры больше нет; инлайн-навигацию крепит ensure_nav.
     assert msg.reply_keyboard is None
-    # Сброс — через команду меню, а не кнопку основного потока.
-    assert "/reset" in msg.text
+    # Тело — только данные анкеты (без прозы про сброс/баланс).
+    assert "/reset" not in msg.text

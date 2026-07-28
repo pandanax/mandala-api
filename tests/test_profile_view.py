@@ -1,84 +1,73 @@
-"""Профиль: горячие команды /natal и /matrix присутствуют в тексте.
+"""Профиль: тело — только данные анкеты, под ним ровно 4 кнопки.
 
 Оффлайн, без сети/БД — чистый рендер ``build_profile_message``.
 """
 
 from __future__ import annotations
 
+from mandala.domain.contracts import OutboundMessage
+from mandala.services.intake_flow import CB_PROFILE_EDIT
 from mandala.services.profile_view import build_profile_message
 from mandala.verticals.client_knowledge import (
     AGENT_CARD_DESTINY_MATRIX_DATA,
     AGENT_CARD_NATAL_CHART_DATA,
+    AGENT_CARD_NUMEROLOGY_DATA,
 )
 
 
-def _tokens(text: str | None) -> set[str]:
-    return set((text or "").split())
+def _all_callbacks(msg: OutboundMessage) -> set[str]:
+    return {b["callback_data"] for row in (msg.buttons or []) for b in row}
 
 
-def test_natal_block_carries_hot_natal_command() -> None:
+def test_body_carries_only_intake_fields() -> None:
+    card = {
+        "full_name": "Тест Тестов",
+        "birth_date": "07.01.1987",
+        "birth_place": "Москва",
+        "birth_time": "14:30",
+        "astro_system": "western",
+    }
+    text = build_profile_message("astrology", card).text or ""
+    assert "Ваш профиль" in text
+    assert "Тест Тестов" in text
+    assert "07.01.1987" in text
+    assert "Москва" in text
+    assert "14:30" in text
+    assert "Западная" in text
+
+
+def test_body_omits_computed_blocks_and_balance() -> None:
+    """Тело не дублирует расчёты карт/матрицы/нумерологии и прозу про баланс/topup."""
     card = {
         "full_name": "Тест",
-        "birth_date": "07.01.1987",
-        AGENT_CARD_NATAL_CHART_DATA: {
-            "sun_sign": "Козерог",
-            "moon_sign": "Лев",
-            "ascendant": "Рыбы",
-            "calculated_at": "2026-07-28T10:00:00",
-        },
-    }
-    msg = build_profile_message("astrology", card)
-    # Горячая команда должна стоять отдельным токеном (Telegram сделает её кликабельной).
-    assert "/natal" in _tokens(msg.text)
-
-
-def test_matrix_block_carries_hot_matrix_command() -> None:
-    card = {
-        "full_name": "Тест",
-        "birth_date": "07.01.1987",
-        AGENT_CARD_DESTINY_MATRIX_DATA: {
-            "comfort_zone": {"n": 8, "name": "Сила"},
-        },
-    }
-    msg = build_profile_message("astrology", card)
-    assert "/matrix" in (msg.text or "")
-
-
-def test_both_hot_commands_present_together() -> None:
-    card = {
         "birth_date": "07.01.1987",
         AGENT_CARD_NATAL_CHART_DATA: {"sun_sign": "Козерог", "moon_sign": "Лев"},
         AGENT_CARD_DESTINY_MATRIX_DATA: {"comfort_zone": {"n": 8, "name": "Сила"}},
+        AGENT_CARD_NUMEROLOGY_DATA: {"numbers": {"life_path": 5}},
+        "activated_promo": "TESTME",
     }
-    text = build_profile_message("astrology", card).text
-    assert "/natal" in _tokens(text)
-    assert "/matrix" in (text or "")
+    text = build_profile_message("astrology", card, message_balance=7).text or ""
+    for forbidden in (
+        "рассчитана",
+        "Солнце",
+        "зона комфорта",
+        "жизненный путь",
+        "Осталось сообщений",
+        "/topup",
+        "безлимит",
+    ):
+        assert forbidden not in text, forbidden
 
 
-def test_no_natal_command_without_natal_data() -> None:
-    card = {"birth_date": "07.01.1987"}
-    text = build_profile_message("astrology", card).text
-    assert "/natal" not in _tokens(text)
+def test_exactly_four_buttons_with_expected_callbacks() -> None:
+    text_msg = build_profile_message("astrology", {"birth_date": "07.01.1987"})
+    buttons = [b for row in (text_msg.buttons or []) for b in row]
+    assert len(buttons) == 4
+    assert _all_callbacks(text_msg) == {"/natal", "/matrix", "/numerology", CB_PROFILE_EDIT}
 
 
-def test_profile_shows_message_balance_line() -> None:
-    """Пакетная модель: в профиле строка «Осталось сообщений: N»."""
-    text = build_profile_message("astrology", {"birth_date": "07.01.1987"}, message_balance=7).text
-    assert "Осталось сообщений:" in (text or "")
-    assert "7" in (text or "")
-
-
-def test_profile_promo_shows_unlimited_not_number() -> None:
-    """Активное промо («вечный пакет») → ∞/безлимит, число баланса не показываем."""
-    card = {"birth_date": "07.01.1987", "activated_promo": "TESTME"}
-    text = build_profile_message("astrology", card, message_balance=3).text or ""
-    assert "∞" in text
-    assert "безлимит" in text.lower()
-    assert "Осталось сообщений:" not in text
-
-
-def test_profile_balance_line_omitted_when_unknown() -> None:
-    """Без баланса и без промо строку баланса опускаем (безопасный дефолт)."""
-    text = build_profile_message("astrology", {"birth_date": "07.01.1987"}).text or ""
-    assert "Осталось сообщений:" not in text
-    assert "∞" not in text
+def test_message_balance_arg_accepted_but_not_rendered() -> None:
+    """Совместимость: ``message_balance`` принимается, но в теле не показывается."""
+    text = build_profile_message("astrology", {"birth_date": "07.01.1987"}, message_balance=3).text
+    assert "3" not in (text or "").replace("07.01.1987", "")
+    assert "Осталось" not in (text or "")
