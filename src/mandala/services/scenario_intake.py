@@ -350,15 +350,18 @@ def _handle_promo_command(
     vertical_id: str,
     code: str,
 ) -> list[OutboundMessage]:
-    from mandala.services.promo import activate_promo
+    from mandala.services.promo import activate_promo, get_active_promo
 
     if not code:
-        return [
-            OutboundMessage(
-                text="Укажите промо-код: /promo КОД",
-                buttons=[[_btn("👤 Профиль", "mdl:profile")]],
+        active = get_active_promo(user_id=user_id, vertical_id=vertical_id, conn=conn)
+        if active:
+            text = (
+                f"✅ Активен промо-код: `{active}` — вечный пакет "
+                "(безлимит навсегда).\n\nЧтобы применить другой — отправьте: /promo КОД"
             )
-        ]
+        else:
+            text = "Промо-код не активирован. Чтобы применить — отправьте: /promo КОД"
+        return [OutboundMessage(text=text, buttons=_promo_nav_buttons())]
     activated = activate_promo(code=code, user_id=user_id, vertical_id=vertical_id, conn=conn)
     if activated:
         text = "✅ Промо-код активирован! Подписка без ограничений навсегда.\n\nЧто дальше?"

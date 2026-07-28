@@ -277,6 +277,39 @@ def test_promo_returns_inline_nav(store: dict[str, Any]) -> None:
     assert "активирован" in (out[0].text or "").lower()
 
 
+def test_promo_no_arg_when_inactive_says_not_activated(store: dict[str, Any]) -> None:
+    import mandala.services.promo as promo_mod
+
+    uid = _seed_user(store)
+    with patch.object(promo_mod, "ProfileRepository", lambda conn: _FakeProfiles(conn)):
+        out = _run(store, uid, "/promo")
+    _assert_all_have_buttons(out)
+    assert "не активирован" in (out[0].text or "").lower()
+
+
+def test_promo_no_arg_when_active_shows_the_code(store: dict[str, Any]) -> None:
+    import mandala.services.promo as promo_mod
+
+    uid = _seed_user(store)
+    with patch.object(promo_mod, "ProfileRepository", lambda conn: _FakeProfiles(conn)):
+        # Применяем валидный код (реальный activate_promo), затем /promo без аргумента.
+        applied = _run(store, uid, "/promo TESTME")
+        assert "активирован" in (applied[0].text or "").lower()
+        out = _run(store, uid, "/promo")
+    _assert_all_have_buttons(out)
+    assert "TESTME" in (out[0].text or "")
+
+
+def test_promo_invalid_code_shows_error(store: dict[str, Any]) -> None:
+    import mandala.services.promo as promo_mod
+
+    uid = _seed_user(store)
+    with patch.object(promo_mod, "ProfileRepository", lambda conn: _FakeProfiles(conn)):
+        out = _run(store, uid, "/promo NOPE_NOT_REAL")
+    _assert_all_have_buttons(out)
+    assert "неверный" in (out[0].text or "").lower()
+
+
 def test_completed_user_plain_text_passes_through_to_llm(store: dict[str, Any]) -> None:
     uid = _seed_user(store)
     with patch(_GEO, return_value=_MOSCOW):

@@ -48,3 +48,14 @@ def is_promo_active(*, user_id: UUID, vertical_id: str, conn: Connection) -> boo
         return False
     promo = profile.agent_card.get(_AGENT_CARD_PROMO_KEY)
     return isinstance(promo, str) and bool(promo.strip())
+
+
+def get_active_promo(*, user_id: UUID, vertical_id: str, conn: Connection) -> str | None:
+    """Вернуть применённый промо-код (сам код) или ``None``, если промо не активно."""
+    profile = ProfileRepository(conn).get_by_user_id(user_id)
+    if profile is None:
+        return None
+    promo = profile.agent_card.get(_AGENT_CARD_PROMO_KEY)
+    if isinstance(promo, str) and promo.strip():
+        return promo.strip()
+    return None
