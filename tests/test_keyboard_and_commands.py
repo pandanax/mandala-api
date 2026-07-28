@@ -118,8 +118,9 @@ def test_help_message_has_photo_bold_menu_and_inline_nav() -> None:
     assert "**Карта судьбы**" in text
     assert "**Нумерология**" in text
     assert "**Все команды**" in text
-    # Перечислены ВСЕ 10 команд бота, каждая с описанием.
-    for cmd in (
+    # Перечислены ВСЕ 10 команд бота, КАЖДАЯ — отдельным пунктом списка (буллет),
+    # одна команда = один буллет (никаких склеек «/natal — …, /matrix — …»).
+    all_commands = (
         "/natal",
         "/matrix",
         "/numerology",
@@ -130,8 +131,13 @@ def test_help_message_has_photo_bold_menu_and_inline_nav() -> None:
         "/help",
         "/promo",
         "/topup",
-    ):
+    )
+    lines = text.splitlines()
+    for cmd in all_commands:
         assert cmd in text, cmd
+        # ровно один пункт-буллет вида «• /cmd — …» на команду
+        bullet_lines = [ln for ln in lines if ln.lstrip().startswith(f"• {cmd} ")]
+        assert len(bullet_lines) == 1, (cmd, bullet_lines)
     # /topup описан как покупка сообщений, не «тарифы».
     assert "купить сообщения" in text.lower()
     assert "тариф" not in text.lower()

@@ -39,7 +39,7 @@ def _btn(label: str, callback_data: str) -> dict[str, str]:
 def natal_nav_buttons() -> list[list[dict[str, str]]]:
     """Навигация под натальной картой."""
     return [
-        [_btn("🔮 Углублённый разбор (ИИ)", "mdl:natal")],
+        [_btn("🔮 Углублённый разбор", "mdl:natal")],
         [_btn("🌌 Карта судьбы", "/matrix"), _btn("📊 Прогноз", "mdl:forecast_menu")],
         [_btn("👤 Профиль", "mdl:profile")],
     ]
@@ -48,7 +48,7 @@ def natal_nav_buttons() -> list[list[dict[str, str]]]:
 def matrix_nav_buttons() -> list[list[dict[str, str]]]:
     """Навигация под Матрицей Судьбы."""
     return [
-        [_btn("🔮 Разбор Карты судьбы (ИИ)", "mdl:matrix")],
+        [_btn("🔮 Разбор судьбы", "mdl:matrix")],
         [_btn("🪐 Натальная карта", "/natal"), _btn("📊 Прогноз", "mdl:forecast_menu")],
         [_btn("👤 Профиль", "mdl:profile")],
     ]
@@ -287,7 +287,7 @@ def render_destiny_matrix_text(dm: dict[str, Any]) -> str:
             lines.append(f"• ❤️ Отношения: итог {_arc_str(love.get('total'))}")
 
     lines.append("")
-    lines.append("Нажмите «Разбор Карты судьбы», чтобы я растолковал арканы подробно.")
+    lines.append("Нажмите «Разбор судьбы», чтобы я растолковал арканы подробно.")
     return "\n".join(lines)
 
 
@@ -298,7 +298,7 @@ def render_destiny_matrix_message(dm: dict[str, Any]) -> OutboundMessage:
 def numerology_nav_buttons() -> list[list[dict[str, str]]]:
     """Навигация под нумерологией."""
     return [
-        [_btn("🔮 Разбор нумерологии (ИИ)", "mdl:numerology")],
+        [_btn("🔮 Разбор чисел", "mdl:numerology")],
         [_btn("🪐 Натальная карта", "/natal"), _btn("🌌 Карта судьбы", "/matrix")],
         [_btn("📊 Прогноз", "mdl:forecast_menu"), _btn("👤 Профиль", "mdl:profile")],
     ]
@@ -352,7 +352,7 @@ def render_numerology_text(data: dict[str, Any]) -> str:
             "не указано имя. Добавьте имя в профиль для полного разбора."
         )
     lines.append("")
-    lines.append("Нажмите «Разбор нумерологии», чтобы я растолковал числа подробно.")
+    lines.append("Нажмите «Разбор чисел», чтобы я растолковал числа подробно.")
     return "\n".join(lines)
 
 

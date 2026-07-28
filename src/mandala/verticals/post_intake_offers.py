@@ -50,35 +50,35 @@ def _astrology_completion(agent_card: dict[str, Any]) -> OutboundMessage:
         buttons: list[list[dict[str, str]]] = [
             [_btn("🪐 Натальная карта", "/natal"), _btn("🌌 Карта судьбы", "/matrix")],
             [
-                _btn("Финансы и ресурс", "mdl:th_fin"),
-                _btn("Отношения", "mdl:th_rel"),
+                _btn("💰 Финансы", "mdl:th_fin"),
+                _btn("💞 Отношения", "mdl:th_rel"),
             ],
             [
-                _btn("Энергия и режим", "mdl:th_health"),
-                _btn("Прогноз на сегодня", "mdl:fc_today"),
+                _btn("⚡️ Энергия", "mdl:th_health"),
+                _btn("📊 Сегодня", "mdl:fc_today"),
             ],
             [
-                _btn("Прогноз на неделю", "mdl:fc_week"),
-                _btn("Прогноз на месяц", "mdl:fc_month"),
+                _btn("📅 Неделя", "mdl:fc_week"),
+                _btn("🗓 Месяц", "mdl:fc_month"),
             ],
-            [_btn("Прогноз на год", "mdl:fc_year"), _btn("Совместимость", "mdl:syn")],
-            [_btn("Обновить натальную карту", "mdl:natal")],
+            [_btn("📆 Год", "mdl:fc_year"), _btn("💞 Совместимость", "mdl:syn")],
+            [_btn("🔄 Обновить", "mdl:natal")],
             _buy_messages_row(),
         ]
     else:
         text = base_intro
         buttons = [
             [_btn("🪐 Натальная карта", "/natal"), _btn("🌌 Карта судьбы", "/matrix")],
-            [_btn("Разбор карты (ИИ)", "mdl:natal")],
+            [_btn("🪐 Разбор", "mdl:natal")],
             [
-                _btn("Прогноз на сегодня", "mdl:fc_today"),
-                _btn("Прогноз на неделю", "mdl:fc_week"),
+                _btn("📊 Сегодня", "mdl:fc_today"),
+                _btn("📅 Неделя", "mdl:fc_week"),
             ],
             [
-                _btn("Прогноз на месяц", "mdl:fc_month"),
-                _btn("Прогноз на год", "mdl:fc_year"),
+                _btn("🗓 Месяц", "mdl:fc_month"),
+                _btn("📆 Год", "mdl:fc_year"),
             ],
-            [_btn("Совместимость", "mdl:syn")],
+            [_btn("💞 Совместимость", "mdl:syn")],
             _buy_messages_row(),
         ]
     return OutboundMessage(text=text, buttons=buttons)
@@ -92,10 +92,10 @@ def _therapy_completion() -> OutboundMessage:
         ),
         buttons=[
             [
-                _btn("Выговориться", "mdl_th:vent"),
-                _btn("Настроение", "mdl_th:mood"),
+                _btn("🗣 Выговориться", "mdl_th:vent"),
+                _btn("🙂 Настроение", "mdl_th:mood"),
             ],
-            [_btn("Тревога", "mdl_th:anx")],
+            [_btn("😰 Тревога", "mdl_th:anx")],
             _buy_messages_row(),
         ],
     )

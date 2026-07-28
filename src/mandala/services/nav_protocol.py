@@ -7,14 +7,17 @@
 
     <короткое сообщение пользователю>
     ---mandala-nav---
-    {"buttons":[{"label":"🌙 Ночное восстановление: что говорит карта о сне","q":"…"}],
+    {"buttons":[{"label":"🌙 Сон","q":"…"}],
      "terms":[{"term":"…","q":"…"}]}
 
 - ``buttons`` — inline-кнопки навигации «куда дальше». Это те самые контекстные
   предложения модели «что разобрать следующим», вынесенные в кнопки (а НЕ прозой в
-  тексте). ``label`` — ПОЛНЫЙ интересный заголовок перехода, ``q`` — запрос от лица
-  пользователя, продолжающий эту ветку (выполняется при нажатии). Если модель всё же
-  написала пункты прозой без JSON — :func:`extract_prose_nav` вытащит их в кнопки.
+  тексте). ``label`` — КОРОТКАЯ метка перехода: иконка + 1–2 слова (напр. «🌙 Сон»),
+  ``q`` — запрос от лица пользователя, продолжающий эту ветку (выполняется при нажатии).
+  Даже если модель прислала длинную подпись, рендер детерминированно ужимает её до
+  «иконка + 1–2 слова» (:func:`_shorten_label`) — пользователь всегда видит короткую
+  кнопку. Если модель всё же написала пункты прозой без JSON — :func:`extract_prose_nav`
+  вытащит их в кнопки (и тоже ужмёт метки).
 - ``terms`` — 2–5 самых базовых/ключевых сущностей ответа (например «Луна во Льве»).
   Они выносятся ИНЛАЙН-КНОПКАМИ под сообщением (label = термин, callback → объяснение
   термина в контексте); остальные термины остаются обычным текстом. Инлайн-ТЕКСТ
@@ -67,14 +70,20 @@ NAV_DEEPLINK_PREFIX = "mdlnav_"
 # Ограничения на размер: защищают от «полотна» и от переполнения лимитов Telegram.
 _MAX_BUTTONS = 8
 _MAX_TERMS = 8
-# Кнопки навигации — это ПОЛНЫЕ «куда дальше» заголовки («🌙 Ночное восстановление: что
-# говорит карта о сне»), а не «1️⃣ Подробнее». Держим щедрый лимит (Telegram переносит
-# длинную подпись кнопки на несколько строк).
-_MAX_LABEL_CHARS = 64
+# Кнопки навигации — это КОРОТКИЕ метки «иконка + 1–2 слова» (решение капитана): не
+# «полотно» вроде «Ночное восстановление: что говорит карта о сне», а «🌙 Сон». Даже
+# если модель прислала длинную подпись, :func:`_shorten_label` детерминированно ужимает
+# её до этого формата (кап по символам + не более 2 слов + сохранённая ведущая иконка).
+_MAX_LABEL_CHARS = 24
+# Не более 2 слов (помимо ведущей иконки) в метке кнопки навигации.
+_MAX_LABEL_WORDS = 2
 _MAX_TERM_CHARS = 48
+# Кап для полной подписи кнопки-термина «📖 <термин>» — термины и так короткие (2–5
+# ключевых сущностей), их НЕ ужимаем как nav-метки; лишь страхуем от переполнения.
+_MAX_TERM_LABEL_CHARS = 64
 _MAX_QUERY_CHARS = 400
-# По одной кнопке в ряду: подписи длинные (полные заголовки перехода), вертикальный
-# список читается как «куда двигаться дальше», а не как тесная сетка.
+# По одной кнопке навигации в ряду: вертикальный список читается как «куда двигаться
+# дальше», а не как тесная сетка (сами подписи короткие — «иконка + 1–2 слова»).
 _BUTTONS_PER_ROW = 1
 
 # Кликабельные термины — НАДЁЖНЫМИ inline-callback кнопками (инлайн-текст в Telegram
@@ -126,6 +135,69 @@ class NavRender:
 
 def _coerce_str(value: object) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+# Ведущая эмодзи-иконка кнопки: один и более emoji/символ (с variation-selector'ами и
+# ZWJ-склейками) в самом начале метки. Захватываем её отдельно, чтобы при ужатии подписи
+# всегда сохранить иконку (напр. «🔄», «⚡️», «⬅️», «🪐»), а слова считать по остатку.
+_LEADING_ICON_RE = re.compile(
+    "^(?:["
+    "\U0001f000-\U0001faff"  # эмодзи-блоки (🌙 🔄 🪐 💰 …)
+    "←-⇿"  # стрелки (⬅ живёт в 2B00, но ← тоже сюда)
+    "⌀-➿"  # misc technical + dingbats (⚡ ⌛ ✅ …)
+    "⬀-⯿"  # доп. символы и стрелки (⬅ ⬆ ⭐ …)
+    "️⃣‍"  # variation selector, keycap, ZWJ (склейки эмодзи)
+    "™ℹ〰〽㊗㊙"  # ™ ℹ 〰 〽 ㊗ ㊙
+    "]+)"
+)
+# Хвостовая пунктуация, которую снимаем перед добавлением «…».
+_TRAIL_PUNCT = " ,;:.!?—–-·"
+
+
+def _shorten_label(label: str) -> str:
+    """Ужать подпись кнопки навигации до «иконка + 1–2 слова» (детерминированный бэкстоп).
+
+    Даже если модель (или прозаический fallback) прислала длинный заголовок, пользователь
+    должен увидеть КОРОТКУЮ метку: ведущая эмодзи-иконка (если есть) сохраняется всегда,
+    от остального текста берётся не более :data:`_MAX_LABEL_WORDS` слов и общий кап
+    :data:`_MAX_LABEL_CHARS` символов, обрезка — по границе слова (без обрыва посреди
+    слова). «…» добавляется ТОЛЬКО если реально что-то отсечено. Пустой/битый вход
+    деградирует безопасно (возвращается исходная строка обрезанная по капу).
+    """
+    s = (label or "").strip()
+    if not s:
+        return s
+    m = _LEADING_ICON_RE.match(s)
+    icon = m.group(0).strip() if m else ""
+    rest = (s[m.end() :] if m else s).strip()
+    words = rest.split()
+
+    prefix = f"{icon} " if icon else ""
+    budget = _MAX_LABEL_CHARS - len(prefix)
+    if budget < 4:  # необычно длинная «иконка» — не ужимаем под неё, берём общий кап
+        prefix = ""
+        budget = _MAX_LABEL_CHARS
+
+    if not words:  # метка была только иконкой
+        return icon or s[:_MAX_LABEL_CHARS]
+
+    kept: list[str] = []
+    for word in words[:_MAX_LABEL_WORDS]:
+        candidate = " ".join([*kept, word])
+        if kept and len(candidate) > budget:
+            break
+        kept.append(word)
+    truncated = len(kept) < len(words)
+    text = " ".join(kept)
+    if len(kept) == 1 and len(text) > budget:  # единственное слишком длинное слово
+        text = words[0][:budget].rstrip()
+        truncated = True
+
+    text = text.rstrip(_TRAIL_PUNCT)
+    if truncated and text:
+        text = f"{text}…"
+    result = f"{prefix}{text}".strip()
+    return result or s[:_MAX_LABEL_CHARS]
 
 
 def _query_of(item: Mapping[str, object]) -> str:
@@ -226,7 +298,7 @@ def _parse_nav_json(tail: str) -> NavSpec | None:
                 break
             if not isinstance(item, Mapping):
                 continue
-            label = _coerce_str(item.get("label"))[:_MAX_LABEL_CHARS]
+            label = _shorten_label(_coerce_str(item.get("label")))
             query = _query_of(item)
             if label and query:
                 buttons.append(NavOption(label=label, query=query))
@@ -324,7 +396,7 @@ def _is_back_item(item: str) -> bool:
 
 
 def _prose_item_to_option(item: str) -> NavOption:
-    label = item.strip()[:_MAX_LABEL_CHARS]
+    label = _shorten_label(item.strip())
     if _is_back_item(item):
         query = _BACK_QUERY
     else:
@@ -438,7 +510,7 @@ def build_term_buttons(
             continue
         nav_id = f"t{len(nav_map)}"
         nav_map[nav_id] = query_s[:_MAX_QUERY_CHARS]
-        label = f"{_TERM_BUTTON_PREFIX}{term_s}"[:_MAX_LABEL_CHARS]
+        label = f"{_TERM_BUTTON_PREFIX}{term_s}"[:_MAX_TERM_LABEL_CHARS]
         row.append({"text": label, "callback_data": f"{NAV_CALLBACK_PREFIX}{nav_id}"})
         if len(row) >= _TERM_BUTTONS_PER_ROW:
             rows.append(row)

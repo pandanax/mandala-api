@@ -146,13 +146,28 @@ def test_assign_ids_one_button_per_row() -> None:
     assert [len(r) for r in render.buttons] == [1, 1, 1]
 
 
-def test_split_keeps_full_heading_label() -> None:
-    # label — полный интересный заголовок (до 64 символов), не «1️⃣ …».
+def test_split_shortens_long_label_to_icon_plus_two_words() -> None:
+    # Даже если модель прислала «полотно», рендер детерминированно ужимает подпись до
+    # «иконка + 1–2 слова» — иконка сохранена, слово не обрывается посреди, кап ~24 симв.
     label = "🌙 Ночное восстановление: что говорит карта о сне и расслаблении"
     raw = f'm\n{NAV_MARKER}\n{{"buttons":[{{"label":"{label}","q":"расскажи про сон"}}]}}'
     _, spec = split_llm_nav_suffix(raw)
     assert spec is not None
-    assert spec.buttons[0].label == label
+    short = spec.buttons[0].label
+    assert short == "🌙 Ночное восстановление…"
+    assert short.startswith("🌙 ")  # ведущая иконка сохранена
+    assert len(short) <= 24
+    # Запрос не трогаем — он остаётся полным (обрезается только видимая подпись).
+    assert spec.buttons[0].query == "расскажи про сон"
+
+
+def test_shorten_label_keeps_short_labels_intact() -> None:
+    # Короткие «иконка + 1–2 слова» подписи не меняются и не получают «…».
+    for label in ("🔄 Обновить", "🪐 Натальная карта", "⬅️ Назад", "📊 Прогноз"):
+        raw = f'm\n{NAV_MARKER}\n{{"buttons":[{{"label":"{label}","q":"q"}}]}}'
+        _, spec = split_llm_nav_suffix(raw)
+        assert spec is not None
+        assert spec.buttons[0].label == label
 
 
 # --- extract_prose_nav: fallback для прозаического списка «куда дальше» ----------------

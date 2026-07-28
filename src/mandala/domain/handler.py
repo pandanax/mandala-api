@@ -302,15 +302,15 @@ def _handle_topics_menu() -> list[OutboundMessage]:
                     {"text": "📊 Прогноз", "callback_data": "mdl:forecast_menu"},
                 ],
                 [
-                    {"text": "❤️ Любовь и отношения", "callback_data": "mdl:th_rel"},
-                    {"text": "💰 Деньги и ресурс", "callback_data": "mdl:th_fin"},
+                    {"text": "❤️ Отношения", "callback_data": "mdl:th_rel"},
+                    {"text": "💰 Деньги", "callback_data": "mdl:th_fin"},
                 ],
                 [
                     {"text": "🎯 Предназначение", "callback_data": "mdl:th_career"},
                     {"text": "🧭 Характер", "callback_data": "mdl:th_personality"},
                 ],
                 [
-                    {"text": "🩺 Здоровье и энергия", "callback_data": "mdl:th_health"},
+                    {"text": "🩺 Здоровье", "callback_data": "mdl:th_health"},
                 ],
             ],
         )
