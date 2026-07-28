@@ -123,15 +123,6 @@ class OutboundMessage(BaseModel):
         default=None,
         description="Опционально: клавиатура / inline (структура задаётся адаптером; тикет 9+).",
     )
-    term_links: list[dict[str, str]] | None = Field(
-        default=None,
-        description=(
-            "Опционально: сущности/термины в тексте, которые канал делает кликабельными. "
-            "Каждый элемент — ``{'term': <подстрока в тексте>, 'payload': <токен действия>}``. "
-            "Канало-агностично: Telegram рендерит как inline deep-link "
-            "``t.me/<bot>?start=<payload>``, другие каналы могут игнорировать."
-        ),
-    )
     reply_keyboard: list[list[str]] | None = Field(
         default=None,
         description=(

@@ -15,16 +15,23 @@
   тексте). ``label`` — ПОЛНЫЙ интересный заголовок перехода, ``q`` — запрос от лица
   пользователя, продолжающий эту ветку (выполняется при нажатии). Если модель всё же
   написала пункты прозой без JSON — :func:`extract_prose_nav` вытащит их в кнопки.
-- ``terms`` — сущности/термины, которые ДОСЛОВНО встречаются в тексте сообщения
-  (например «Луна во Льве»). Канал делает их кликабельными (Telegram — inline
-  deep-link ``t.me/<bot>?start=<payload>``); клик → объяснение термина + новая навигация.
+- ``terms`` — 2–5 самых базовых/ключевых сущностей ответа (например «Луна во Льве»).
+  Они выносятся ИНЛАЙН-КНОПКАМИ под сообщением (label = термин, callback → объяснение
+  термина в контексте); остальные термины остаются обычным текстом. Инлайн-ТЕКСТ
+  кликабельным в Telegram сделать нельзя (авто-линкуются только слэш-команды), а
+  Telegram-deep-link ``t.me/<bot>?start=<payload>`` НЕ доставляет start-payload в уже
+  открытый чат (returning users) — iOS на повторном тапе открывает чат без payload,
+  Desktop показывает кнопку START, WebK payload не поддерживает вовсе
+  (bugs.telegram.org/c/8830, tdesktop#27064), поэтому клик по такой «ссылке-термину»
+  оборачивался голым ``/start`` = мягкий рестарт анкеты. Единственный НАДЁЖНЫЙ механизм —
+  inline-callback кнопка ``mdl:nav:<id>`` (``callback_query`` доставляется всегда).
 
-Из-за лимита Telegram на ``callback_data`` (≤64 байта) и на start-payload
-(≤64 символа ``A-Za-z0-9_-``) полный текст запроса ``q`` в кнопку не влезает. Поэтому
-:func:`assign_ids` присваивает каждому переходу короткий id (``n0``/``t0``…) и строит
-карту ``id -> q`` (``nav_map``), которую вызывающий код сохраняет в ``agent_card``.
-Кнопки несут только ``mdl:nav:n0`` / ``mdlnav_t0``; на клике :func:`resolve_nav_action`
-достаёт из ``nav_map`` полный запрос и запускает обычный ход LLM.
+Из-за лимита Telegram на ``callback_data`` (≤64 байта) полный текст запроса ``q`` в кнопку
+не влезает. Поэтому :func:`assign_ids` присваивает каждому переходу короткий id
+(кнопки навигации — ``n0``…, кнопки-термины — ``t0``…) и строит карту ``id -> q``
+(``nav_map``), которую вызывающий код сохраняет в ``agent_card``. Кнопки несут только
+``mdl:nav:n0`` / ``mdl:nav:t0``; на клике :func:`resolve_nav_action` достаёт из ``nav_map``
+полный запрос и запускает обычный ход LLM.
 
 Парсер деградирует безопасно: при отсутствии маркера или битом/пустом JSON возвращает
 ``(текст, None)`` — сообщение показывается без навигации, ничего не падает.
@@ -34,7 +41,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 from mandala.verticals.client_knowledge import MANDALA_AGENT_CARD_MARKER
@@ -70,6 +77,15 @@ _MAX_QUERY_CHARS = 400
 # список читается как «куда двигаться дальше», а не как тесная сетка.
 _BUTTONS_PER_ROW = 1
 
+# Кликабельные термины — НАДЁЖНЫМИ inline-callback кнопками (инлайн-текст в Telegram
+# кликабельным не сделать, а deep-link не доходит до returning-users; см. модульный
+# docstring). Показываем только 2–5 самых базовых/ключевых терминов (решение капитана):
+# остальные остаются обычным текстом, чтобы клавиатура не разрасталась. Подписи-термины
+# короче nav-кнопок → по две в ряд.
+_TERM_BUTTON_PREFIX = "📖 "
+_TERM_BUTTONS_PER_ROW = 2
+_MAX_TERM_BUTTONS = 5
+
 
 @dataclass(frozen=True)
 class NavOption:
@@ -81,7 +97,7 @@ class NavOption:
 
 @dataclass(frozen=True)
 class NavTerm:
-    """Кликабельный термин в тексте сообщения (deep-link → объяснение)."""
+    """Ключевой термин ответа → отдельная inline-callback кнопка «объясни термин»."""
 
     term: str
     query: str
@@ -100,13 +116,12 @@ class NavRender:
     """Готовые к рендеру данные навигации.
 
     ``nav_map`` — карта ``id -> query`` для сохранения в ``agent_card`` (см. модульный
-    docstring). ``buttons`` — ряды inline-клавиатуры. ``term_links`` — элементы
-    ``{"term", "payload"}`` для канало-специфичной подсветки терминов.
+    docstring). ``buttons`` — ряды inline-клавиатуры: сначала кнопки навигации «куда
+    дальше» (``n*``), затем кнопки-термины «объясни термин» (``t*``, до 5 штук).
     """
 
     nav_map: dict[str, str]
     buttons: list[list[dict[str, str]]]
-    term_links: list[dict[str, str]]
 
 
 def _coerce_str(value: object) -> str:
@@ -372,7 +387,11 @@ def extract_prose_nav(text: str) -> tuple[str, NavSpec | None]:
 
 
 def assign_ids(spec: NavSpec) -> NavRender:
-    """Присвоить переходам короткие id и собрать ``nav_map`` / кнопки / term_links."""
+    """Присвоить переходам короткие id и собрать ``nav_map`` + ряды inline-кнопок.
+
+    Кнопки навигации «куда дальше» (``n*``) идут первыми, за ними — кнопки-термины
+    «объясни термин» (``t*``, до 2–5 штук, см. :func:`build_term_buttons`).
+    """
     nav_map: dict[str, str] = {}
     rows: list[list[dict[str, str]]] = []
     row: list[dict[str, str]] = []
@@ -386,13 +405,47 @@ def assign_ids(spec: NavSpec) -> NavRender:
     if row:
         rows.append(row)
 
-    term_links: list[dict[str, str]] = []
-    for i, term in enumerate(spec.terms):
-        nav_id = f"t{i}"
-        nav_map[nav_id] = term.query
-        term_links.append({"term": term.term, "payload": f"{NAV_DEEPLINK_PREFIX}{nav_id}"})
+    # Термины — надёжными inline-callback кнопками ПОД кнопками навигации (инлайн-текст
+    # кликабельным не сделать; deep-link не доходит до returning-users). Кап 2–5 терминов.
+    term_rows, term_nav_map = build_term_buttons((t.term, t.query) for t in spec.terms)
+    nav_map.update(term_nav_map)
+    rows.extend(term_rows)
 
-    return NavRender(nav_map=nav_map, buttons=rows, term_links=term_links)
+    return NavRender(nav_map=nav_map, buttons=rows)
+
+
+def build_term_buttons(
+    terms: Iterable[tuple[str, str]],
+) -> tuple[list[list[dict[str, str]]], dict[str, str]]:
+    """``(термин, запрос-объяснение)`` пары → ряды callback-кнопок + ``nav_map``.
+
+    Каждому термину присваивается id ``t<i>``; кнопка несёт ``mdl:nav:<id>`` и резолвится
+    :func:`resolve_nav_action` (``callback_query`` доставляется Telegram всегда). Берём
+    только первые :data:`_MAX_TERM_BUTTONS` (2–5) самых базовых/ключевых терминов —
+    остальные остаются обычным текстом. Единый билдер для LLM-пути (:func:`assign_ids`) и
+    детерминированного ``/matrix`` (:mod:`mandala.services.term_linkify`). Пустые термин/
+    запрос молча пропускаются (безопасная деградация).
+    """
+    nav_map: dict[str, str] = {}
+    rows: list[list[dict[str, str]]] = []
+    row: list[dict[str, str]] = []
+    for term, query in terms:
+        if len(nav_map) >= _MAX_TERM_BUTTONS:
+            break
+        term_s = (term or "").strip()
+        query_s = (query or "").strip()
+        if not term_s or not query_s:
+            continue
+        nav_id = f"t{len(nav_map)}"
+        nav_map[nav_id] = query_s[:_MAX_QUERY_CHARS]
+        label = f"{_TERM_BUTTON_PREFIX}{term_s}"[:_MAX_LABEL_CHARS]
+        row.append({"text": label, "callback_data": f"{NAV_CALLBACK_PREFIX}{nav_id}"})
+        if len(row) >= _TERM_BUTTONS_PER_ROW:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    return rows, nav_map
 
 
 def resolve_nav_action(text: str | None, nav_map: Mapping[str, str] | None) -> str | None:

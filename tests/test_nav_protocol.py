@@ -117,20 +117,21 @@ def test_split_carries_agent_card_block_back_to_head() -> None:
 # --- assign_ids ------------------------------------------------------------------------
 
 
-def test_assign_ids_builds_map_buttons_and_term_links() -> None:
+def test_assign_ids_builds_map_nav_and_term_buttons() -> None:
     _, spec = split_llm_nav_suffix(_VALID_BLOCK)
     assert spec is not None
     render = assign_ids(spec)
-    # nav_map: n0/n1 для кнопок, t0 для термина.
+    # nav_map: n0/n1 для кнопок навигации, t0 для термина.
     assert render.nav_map["n0"].startswith("Расскажи подробнее")
     assert render.nav_map["n1"].startswith("Вернись")
     assert render.nav_map["t0"].startswith("Что такое")
-    # Кнопки по 2 в ряд, callback_data с префиксом.
+    # Кнопки навигации (n*) идут первыми, callback_data с префиксом.
     flat = [cell for row in render.buttons for cell in row]
     assert flat[0]["callback_data"] == f"{NAV_CALLBACK_PREFIX}n0"
     assert flat[1]["callback_data"] == f"{NAV_CALLBACK_PREFIX}n1"
-    # term_links несут payload с deep-link префиксом.
-    assert render.term_links == [{"term": "Луна во Льве", "payload": f"{NAV_DEEPLINK_PREFIX}t0"}]
+    # Термин — НАДЁЖНОЙ inline-callback кнопкой (не ссылкой в тексте): mdl:nav:t0, «📖 …».
+    term_btn = next(c for c in flat if c["callback_data"] == f"{NAV_CALLBACK_PREFIX}t0")
+    assert term_btn["text"] == "📖 Луна во Льве"
 
 
 def test_assign_ids_one_button_per_row() -> None:

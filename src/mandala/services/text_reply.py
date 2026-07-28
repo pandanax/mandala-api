@@ -392,9 +392,10 @@ def handle_inbound_text_llm(
             ),
         )
 
-    # Навигация: динамические кнопки «следующий шаг» + кликабельные термины из ответа LLM.
-    # nav_map (id → полный запрос) сохраняем в agent_card — при клике его достанет
-    # resolve_nav_action (callback ≤64 байта / start-payload физически не вмещают текст).
+    # Навигация: динамические кнопки «следующий шаг» + кнопки-термины «объясни термин»
+    # (2–5 ключевых) — всё инлайн-кнопками под сообщением (инлайн-текст в Telegram
+    # кликабельным не сделать). nav_map (id → полный запрос) сохраняем в agent_card — при
+    # клике его достанет resolve_nav_action (callback ≤64 байта не вмещает текст).
     if nav_spec is not None:
         render = assign_ids(nav_spec)
         ProfileRepository(conn).merge_agent_card(user_id, {"nav_map": render.nav_map})
@@ -402,7 +403,6 @@ def handle_inbound_text_llm(
             OutboundMessage(
                 text=cleaned_reply,
                 buttons=render.buttons or None,
-                term_links=render.term_links or None,
             )
         ]
 

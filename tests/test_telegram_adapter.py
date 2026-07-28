@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from mandala.adapters.telegram.inbound_map import telegram_update_to_inbound_event
 from mandala.adapters.telegram.outbound_send import deliver_outbound_messages
 from mandala.adapters.telegram.secrets import mask_bot_token
@@ -192,48 +190,3 @@ def test_deliver_inline_buttons_take_priority_over_keyboard_removal() -> None:
     )
     markup = api.send_message.call_args.kwargs["reply_markup"]
     assert markup == {"inline_keyboard": [[{"text": "OK", "callback_data": "ok"}]]}
-
-
-def test_deliver_term_links_render_inline_deeplink(monkeypatch: pytest.MonkeyPatch) -> None:
-    # username из env → без вызова getMe; термин становится inline t.me deep-link.
-    monkeypatch.setenv("TELEGRAM_BOT_USERNAME", "mandala_bot")
-    api = MagicMock()
-    deliver_outbound_messages(
-        api,
-        chat_id=5,
-        messages=[
-            OutboundMessage(
-                text="Твоя Луна во Льве заметна.",
-                buttons=[[{"text": "Дальше", "callback_data": "mdl:nav:n0"}]],
-                term_links=[{"term": "Луна во Льве", "payload": "mdlnav_t0"}],
-            )
-        ],
-    )
-    sent = api.send_message.call_args.kwargs["text"]
-    assert '<a href="https://t.me/mandala_bot?start=mdlnav_t0">Луна во Льве</a>' in sent
-    api.get_me.assert_not_called()
-    # Навигационные inline-кнопки по-прежнему прикреплены.
-    markup = api.send_message.call_args.kwargs["reply_markup"]
-    assert markup == {"inline_keyboard": [[{"text": "Дальше", "callback_data": "mdl:nav:n0"}]]}
-
-
-def test_deliver_term_links_degrade_when_username_unresolved(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Нет env и getMe не даёт username → термин остаётся обычным текстом, доставка не падает.
-    monkeypatch.delenv("TELEGRAM_BOT_USERNAME", raising=False)
-    api = MagicMock()
-    api.get_me.return_value = {}  # username отсутствует
-    deliver_outbound_messages(
-        api,
-        chat_id=6,
-        messages=[
-            OutboundMessage(
-                text="Луна во Льве.",
-                term_links=[{"term": "Луна во Льве", "payload": "mdlnav_t0"}],
-            )
-        ],
-    )
-    sent = api.send_message.call_args.kwargs["text"]
-    assert "<a href=" not in sent
-    assert "Луна во Льве" in sent

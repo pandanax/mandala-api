@@ -50,7 +50,7 @@ from mandala.services.intake_flow import (
 from mandala.services.nav_guarantee import ensure_nav, fallback_nav_buttons
 from mandala.services.profile_view import build_profile_message
 from mandala.services.telegram_stars import build_packs_picker_message
-from mandala.services.term_linkify import linkify_numerology_terms
+from mandala.services.term_linkify import numerology_term_buttons
 from mandala.verticals.client_knowledge import (
     AGENT_CARD_ASTRO_SYSTEM,
     AGENT_CARD_DESTINY_MATRIX_DATA,
@@ -488,19 +488,23 @@ def _instant_natal(conn: Connection, user_id: UUID) -> list[OutboundMessage]:
 def _matrix_message_with_clickable_terms(
     profiles: ProfileRepository, user_id: UUID, dm: dict[str, Any]
 ) -> OutboundMessage:
-    """Рендер Карты судьбы + детерминированная кликабельность нумерологических терминов.
+    """Рендер Карты судьбы + детерминированные кнопки-термины (2–5 ключевых).
 
     Рендер ``/matrix`` не проходит через LLM, поэтому термины делаем кликабельными сами:
-    линкифицируем известный глоссарий (:mod:`mandala.services.term_linkify`), кладём
-    ``nav_map`` (id → запрос-объяснение) в ``agent_card`` и вешаем ``term_links`` на
-    сообщение. Клик по термину резолвит :func:`resolve_nav_action` → обычный ход LLM.
+    находим известный глоссарий (:mod:`mandala.services.term_linkify`), выносим 2–5
+    ключевых терминов НАДЁЖНЫМИ inline-callback кнопками ``mdl:nav:<id>`` и кладём
+    ``nav_map`` (id → запрос-объяснение) в ``agent_card``. Клик по кнопке резолвит
+    :func:`resolve_nav_action` → обычный ход LLM. Термины НЕ рендерятся ссылками в тексте
+    (инлайн-текст в Telegram кликать нельзя; deep-link не доходит до returning-users).
     """
     msg = render_destiny_matrix_message(dm)
-    term_links, nav_map = linkify_numerology_terms(msg.text or "")
-    if not term_links:
+    term_buttons, nav_map = numerology_term_buttons(msg.text or "")
+    if not term_buttons:
         return msg
     profiles.merge_agent_card(user_id, {"nav_map": nav_map})
-    return msg.model_copy(update={"term_links": term_links})
+    # Кнопки-термины идут НАД штатной навигацией рендера.
+    buttons = term_buttons + (msg.buttons or [])
+    return msg.model_copy(update={"buttons": buttons})
 
 
 def _instant_matrix(conn: Connection, user_id: UUID) -> list[OutboundMessage]:

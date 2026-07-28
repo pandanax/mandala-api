@@ -95,34 +95,44 @@ LLM-generated navigation. The model appends a machine block at the very end of i
 - Parser + id assignment + click resolution: `src/mandala/services/nav_protocol.py`
   (`split_llm_nav_suffix`, `assign_ids`, `resolve_nav_action`). Invalid/missing JSON
   degrades to plain text — never raises.
-- `q` (full follow-up query) can't fit Telegram's 64-byte `callback_data` / 64-char
-  start-payload, so `assign_ids` stores an `id -> q` map in `agent_card["nav_map"]`
-  (persisted via `ProfileRepository.merge_agent_card`; overwritten each nav turn = current
-  step). Buttons carry only `mdl:nav:<id>`; clickable terms carry `mdlnav_<id>`.
+- `q` (full follow-up query) can't fit Telegram's 64-byte `callback_data`, so `assign_ids`
+  stores an `id -> q` map in `agent_card["nav_map"]` (persisted via
+  `ProfileRepository.merge_agent_card`; overwritten each nav turn = current step). Nav
+  buttons carry `mdl:nav:n<id>`; term buttons carry `mdl:nav:t<id>`.
+- **Clickable terms are inline-callback BUTTONS, never in-text links** (captain's call
+  after a prod bug). Telegram in-text is only clickable for auto-linked slash-commands, and
+  a `t.me/<bot>?start=<payload>` deep-link does **not** deliver the start-payload to an
+  already-open chat (returning users) — iOS repeat-tap opens the chat without payload,
+  Desktop shows a START button, WebK ignores payloads (bugs.telegram.org/c/8830,
+  tdesktop#27064). So a tapped “term link” arrived as a bare `/start` = soft intake restart.
+  Fix: the model's `terms` (and the deterministic `/matrix` glossary) become **2–5 key**
+  `📖 <term>` callback buttons under the message (`callback_query` always delivers); the rest
+  stay plain text. Builder: `nav_protocol.build_term_buttons` (single source for both paths;
+  cap `_MAX_TERM_BUTTONS = 5`, 2 per row). `assign_ids` appends them after the nav (`n*`)
+  buttons; `NavRender` no longer has `term_links`. The old in-text deep-link machinery is
+  **removed**: no `OutboundMessage.term_links`, no `format_llm_text_for_telegram_html`
+  term/bot_username params, no `_resolve_bot_username`/`TELEGRAM_BOT_USERNAME` for terms.
 - Clicks route in `domain/handler.py` (before intake): `resolve_nav_action` turns
-  `mdl:nav:*` (inline button) or `/start mdlnav_*` (term deep-link) back into `q` and runs a
-  normal LLM turn. Wiring that attaches buttons/term_links: `services/text_reply.py`.
-- Terms render as inline `t.me/<bot>?start=<payload>` links in
-  `adapters/telegram/text_format.py` (`format_llm_text_for_telegram_html`); bot username via
-  env `TELEGRAM_BOT_USERNAME` or cached `getMe` in `outbound_send.py`. No username → terms
-  stay plain text (safe degrade).
+  `mdl:nav:*` (inline button) back into `q` and runs a normal LLM turn (it still also
+  resolves legacy `/start mdlnav_*` for harmlessness). Wiring that attaches buttons:
+  `services/text_reply.py`.
 - Profile/reset/help live in the burger menu (`setMyCommands` in `bot_commands.py`,
-  `/profile` handled in `scenario_intake.py`). The channel-agnostic
-  `OutboundMessage.term_links` field carries `{term, payload}`.
-- **Deterministic numerology term linkifier (`/matrix` render).** The `/matrix` render
+  `/profile` handled in `scenario_intake.py`).
+- **Deterministic numerology term buttons (`/matrix` render).** The `/matrix` render
   (`chart_render.render_destiny_matrix_*`) never goes through the LLM, so its terms can't rely
-  on the model's nav block. `services/term_linkify.linkify_numerology_terms(text)` closes that
+  on the model's nav block. `services/term_linkify.numerology_term_buttons(text)` closes that
   gap: it scans a fixed glossary (22 arcana + octagram positions/lines/chakras — source of
-  truth `astro.destiny_matrix.ARCANA_NAMES`/`CHAKRAS_TOP_DOWN`) and returns `(term_links,
-  nav_map)` reusing the SAME scheme as LLM nav (`nav_map` id→«объясни термин X» query, payload
-  `mdlnav_<id>`). `scenario_intake._matrix_message_with_clickable_terms` persists the `nav_map`
-  to `agent_card` and attaches `term_links` — a tap resolves through the existing
-  `resolve_nav_action` → normal LLM turn (explanation + inline nav). Matching is
+  truth `astro.destiny_matrix.ARCANA_NAMES`/`CHAKRAS_TOP_DOWN`), keeps the first 2–5 in text
+  order via `build_term_buttons`, and returns `(button_rows, nav_map)` reusing the SAME scheme
+  as LLM nav (`nav_map` id→«объясни термин X» query, callback `mdl:nav:t<id>`).
+  `scenario_intake._matrix_message_with_clickable_terms` persists the `nav_map` to
+  `agent_card` and prepends the term buttons above the render's nav — a tap resolves through
+  the existing `resolve_nav_action` → normal LLM turn (explanation + inline nav). Matching is
   **case-sensitive with Cyrillic word boundaries** (so «Император» ≠ inside «Императрица», short
-  «Суд» ≠ inside «судьбы»), first-occurrence-only (no duplicate links), longest-wins on overlap.
-  Empty result degrades safely (plain text). The prompt (`verticals/prompts.py`) additionally
-  tells the model to mark EVERY numerology term in `terms` for free-form answers. Tests:
-  `tests/test_numerology_clickable_terms.py`.
+  «Суд» ≠ inside «судьбы»), first-occurrence-only, longest-wins on overlap. Empty result
+  degrades safely (plain text). The prompt (`verticals/prompts.py`) tells the model to mark
+  only the **2–5 key** terms in `terms`. Tests: `tests/test_numerology_clickable_terms.py`,
+  `tests/test_clickable_term_reliable_buttons.py`.
 - **Inline-only navigation (no persistent reply keyboard).** Every bot answer ends with an
   inline keyboard — the LLM picks it via the nav block above; when the model emits no valid
   nav (bad JSON, non-astrology vertical), `services/nav_guarantee.py` (`ensure_nav`) attaches
