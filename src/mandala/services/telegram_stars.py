@@ -50,13 +50,58 @@ def build_pack_invoice_message(pack_id: str) -> OutboundMessage | None:
     )
 
 
-def build_packs_picker_message(*, text: str | None = None) -> OutboundMessage:
-    """Сообщение с тремя инлайн-кнопками пакетов (клик → счёт соответствующего пакета)."""
+def _balance_line(*, balance: int | None, unlimited: bool) -> str | None:
+    """Строка с текущим балансом сообщений для шапки пикера (или ``None``, если нечего показать)."""
+    if unlimited:
+        return "💬 У тебя сейчас: ∞ (безлимит)"
+    if balance is not None:
+        return f"💬 У тебя сейчас: {balance} сообщений"
+    return None
+
+
+def build_packs_picker_message(
+    *,
+    text: str | None = None,
+    balance: int | None = None,
+    unlimited: bool = False,
+) -> OutboundMessage:
+    """Сообщение с тремя инлайн-кнопками пакетов (клик → счёт соответствующего пакета).
+
+    Если передан ``balance``/``unlimited`` и явный ``text`` не задан — над предложением
+    выбрать пакет добавляется строка с текущим балансом сообщений («∞ (безлимит)» под промо).
+    """
     buttons = [
         [{"text": pack.button_label, "callback_data": pack_callback(pack.pack_id)}]
         for pack in all_packs()
     ]
-    return OutboundMessage(text=text or MSG_PACKS_LEAD, buttons=buttons)
+    if text is not None:
+        body = text
+    else:
+        line = _balance_line(balance=balance, unlimited=unlimited)
+        body = f"{line}\n\n{MSG_PACKS_LEAD}" if line is not None else MSG_PACKS_LEAD
+    return OutboundMessage(text=body, buttons=buttons)
+
+
+def build_packs_picker_with_balance(
+    conn: Connection,
+    *,
+    user_id: Any,
+    vertical_id: str,
+) -> OutboundMessage:
+    """Пикер пакетов с шапкой «текущий баланс сообщений» (под промо → «∞ (безлимит)»).
+
+    Единый способ показать пользователю, сколько у него сейчас сообщений, при открытии
+    «Купить сообщения» (и из ``/topup``, и из инлайн-кнопки ``mdl:packs``).
+    """
+    from mandala.services.promo import is_promo_active
+
+    unlimited = is_promo_active(user_id=user_id, vertical_id=vertical_id, conn=conn)
+    balance = (
+        None
+        if unlimited
+        else WalletRepository(conn).get_balance(user_id=user_id, vertical_id=vertical_id)
+    )
+    return build_packs_picker_message(balance=balance, unlimited=unlimited)
 
 
 def handle_pre_checkout_query(

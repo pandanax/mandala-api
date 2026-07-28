@@ -49,7 +49,7 @@ from mandala.services.intake_flow import (
 )
 from mandala.services.nav_guarantee import ensure_nav, fallback_nav_buttons
 from mandala.services.profile_view import build_profile_message
-from mandala.services.telegram_stars import build_packs_picker_message
+from mandala.services.telegram_stars import build_packs_picker_with_balance
 from mandala.services.term_linkify import numerology_term_buttons
 from mandala.verticals.client_knowledge import (
     AGENT_CARD_ASTRO_SYSTEM,
@@ -820,12 +820,7 @@ def _handle_command(
 
     if command in _TOPUP_COMMANDS:
         return [
-            build_packs_picker_message(
-                text=(
-                    "Пополнение баланса сообщений. Выберите пакет — сообщения зачислятся "
-                    "на баланс и не сгорают:"
-                )
-            )
+            build_packs_picker_with_balance(conn, user_id=user_id, vertical_id=event.vertical_id)
         ]
 
     if command in _HARD_RESET_COMMANDS:

@@ -21,7 +21,7 @@ from mandala.services.profile_view import build_profile_message
 from mandala.services.scenario_intake import handle_intake_before_llm
 from mandala.services.telegram_stars import (
     build_pack_invoice_message,
-    build_packs_picker_message,
+    build_packs_picker_with_balance,
 )
 from mandala.services.text_reply import handle_inbound_text_llm
 from mandala.services.user_identity import UserIdentityService
@@ -158,7 +158,9 @@ def handle_inbound(
 
     # Покупка пакетов сообщений (пакетная монетизация): пикер и счёт конкретного пакета.
     # Проверяем сырой callback независимо от таблицы разворота quick_actions.
-    packs_out = _route_message_packs(event.vertical_id, event.text, uid=uid, channel=event.channel)
+    packs_out = _route_message_packs(
+        conn, event.vertical_id, event.text, uid=uid, channel=event.channel
+    )
     if packs_out is not None:
         return packs_out
 
@@ -331,6 +333,7 @@ def _handle_show_profile(
 
 
 def _route_message_packs(
+    conn: Connection,
     vertical_id: str,
     text: str | None,
     *,
@@ -353,14 +356,20 @@ def _route_message_packs(
                 intent="packs_menu",
             ),
         )
-        return ensure_nav([build_packs_picker_message()], vertical_id)
+        return ensure_nav(
+            [build_packs_picker_with_balance(conn, user_id=uid, vertical_id=vertical_id)],
+            vertical_id,
+        )
     pack_id = parse_pack_callback(text)
     if pack_id is None:
         return None
     invoice = build_pack_invoice_message(pack_id)
     if invoice is None:
         # Неизвестный pack_id — мягко показываем пикер вместо ошибки.
-        return ensure_nav([build_packs_picker_message()], vertical_id)
+        return ensure_nav(
+            [build_packs_picker_with_balance(conn, user_id=uid, vertical_id=vertical_id)],
+            vertical_id,
+        )
     logger.info(
         "funnel inbound %s",
         op_format(
