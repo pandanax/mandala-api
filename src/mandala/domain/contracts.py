@@ -143,6 +143,29 @@ class OutboundMessage(BaseModel):
         default=None,
         description="Фото: URL, ``file_id`` или иной идентификатор по возможностям канала.",
     )
+    photo_bytes: bytes | None = Field(
+        default=None,
+        exclude=True,
+        description=(
+            "Фото как сырые байты (напр. сгенерированное колесо натальной карты) для "
+            "multipart-загрузки в канал. Приоритетнее ``photo`` при отправке. "
+            "``exclude=True``: доступно как атрибут (Telegram-адаптер грузит байты), но НЕ "
+            "попадает в JSON-сериализацию — web-канал байтовое фото так игнорирует "
+            "(безопасная деградация, без base64-утечки в ответ)."
+        ),
+    )
+    photo_filename: str = Field(
+        default="chart.png",
+        description="Имя файла для multipart-загрузки ``photo_bytes`` (Content-Disposition).",
+    )
+    photo_cache_key: str | None = Field(
+        default=None,
+        description=(
+            "Если задан и ``photo_bytes`` успешно загружены, канал сохраняет полученный "
+            "``file_id`` в ``agent_card[photo_cache_key]`` — при следующей отправке фото "
+            "переиспользуется по ``file_id`` (мгновенно, без перезагрузки байтов)."
+        ),
+    )
     requires_payment: bool = Field(
         default=False,
         description=(

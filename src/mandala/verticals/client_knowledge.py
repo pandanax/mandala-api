@@ -21,6 +21,12 @@ AGENT_CARD_DESTINY_MATRIX_DATA = "destiny_matrix_data"
 # Ключ в ``agent_card``: активная система (western/vedic).
 AGENT_CARD_ASTRO_SYSTEM = "astro_system"
 
+# Ключ в ``agent_card``: Telegram ``file_id`` уже загруженного колеса натальной карты.
+# Кэш: первый ``/natal`` грузит PNG-байты, Telegram возвращает ``file_id`` — сохраняем и
+# переиспользуем при следующих ``/natal`` (мгновенно, без перерисовки). Инвалидируется
+# (сбрасывается в "") при пересчёте карты — правка профиля/смена системы.
+AGENT_CARD_NATAL_WHEEL_FILE_ID = "natal_wheel_file_id"
+
 # Маркер в конце ответа ассистента (отдельная строка после ``\\n``).
 MANDALA_AGENT_CARD_MARKER = "---mandala---"
 

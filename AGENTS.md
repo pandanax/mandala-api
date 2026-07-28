@@ -41,11 +41,29 @@ code: `src/mandala/astro/natal_chart.py`.
   recomputed). Deep interpretation still goes through the LLM «Углублённый разбор» button.
 - **Birth time is asked as LOCAL time.** `intake_steps.json` `birth_time` prompt explicitly asks
   for local birthplace time; `intake_flow._echo_line` confirms «приму как МЕСТНОЕ время».
-- **Chart-wheel image is deferred (needs-decision).** A kerykeion `KerykeionChartSVG` wheel is
-  pure math and generates offline, but every SVG→PNG path (cairosvg; svglib→reportlab5 whose PNG
-  backend is `rlPyCairo`) needs **system libcairo** in the prod image, and `OutboundMessage.photo`
-  is a URL/`file_id` `str` with no bytes-upload plumbing. Shipped text-only; do not add libcairo
-  to the image without a deploy decision.
+- **Chart-wheel image (shipped).** `/natal` (and any saved-chart render) sends a colored
+  natal **wheel PNG** before the block text. Authoritative render: `services/chart_wheel.py`
+  (`render_natal_wheel_png`) — deterministic, never LLM: kerykeion `KerykeionChartSVG.makeWheelOnlySVG`
+  → **resolve CSS `var(--…)` colors** (kerykeion emits all colors as `:root` vars with nested
+  refs; cairosvg doesn't resolve `var()` → a black blob — `_resolve_svg_vars` parses `:root`,
+  derefs nested vars to `#hex`, substitutes) → `cairosvg` PNG. Needs **system libcairo** +
+  a base font: `Containerfile` runtime installs `libcairo2 fonts-dejavu-core` (planet/sign
+  glyphs are vector `<path>`; only degree numbers need a font). `cairosvg` is a runtime dep
+  (`pyproject.toml`/`uv.lock`). The wheel builds its subject via the shared
+  `natal_chart.build_astrological_subject` (same school/houses as the computed chart) using the
+  **`geo` coords stored in `natal_chart_data`** — so `/natal` never re-geocodes (offline, fast).
+- **Bytes photo upload + file_id cache.** `OutboundMessage.photo_bytes` (`exclude=True` → never
+  in web JSON, safe degrade) carries the PNG; `bot_api.send_photo` uploads it **multipart**
+  (`call_multipart`), `outbound_send.deliver_outbound_messages` returns `{photo_cache_key → file_id}`.
+  First `/natal` uploads bytes with `photo_cache_key=AGENT_CARD_NATAL_WHEEL_FILE_ID`; the delivery
+  callers (`webhook_delivery`/`polling`) persist the returned `file_id` to `agent_card` via
+  `adapters/telegram/photo_cache.persist_photo_file_ids` — next `/natal` sends by `file_id`
+  (instant, no re-render). Cache is invalidated (set to `""`) whenever the chart is recomputed
+  (`_try_calculate_and_save_natal_chart`, i.e. profile edit / system switch). Local arm64 note:
+  the image builds on **amd64** (`podman build --platform linux/amd64`) — pyswisseph has no
+  aarch64 wheel and the slim builder has no gcc.
+- **Wheel tests:** `tests/test_natal_wheel_image.py` (PNG signature+size = colored, `var()`
+  resolution, no-geocode-with-coords, multipart send, file_id cache reuse, web `exclude` degrade).
 - **Regression:** `tests/test_evgenia_natal_regression.py` (two-school accuracy) +
   `tests/test_natal_tz_and_no_fabrication.py` (tz-not-UTC raises, local-time ascendant, western
   Placidus reference, no-fabrication) + `tests/test_natal_block_render.py` (all blocks present,

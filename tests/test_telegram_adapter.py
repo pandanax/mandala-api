@@ -123,9 +123,13 @@ def test_deliver_outbound_text_and_photo() -> None:
         parse_mode="HTML",
     )
     # Снятие клавиатуры — один раз за ответ; на последующих сообщениях его уже нет.
+    # send_photo теперь всегда получает photo_bytes/filename (для байтовой загрузки);
+    # для URL/file_id пути они None/дефолт.
     api.send_photo.assert_called_with(
         chat_id=1,
         photo="file_xyz",
+        photo_bytes=None,
+        filename="chart.png",
         caption="cap",
         reply_markup=None,
         parse_mode="HTML",

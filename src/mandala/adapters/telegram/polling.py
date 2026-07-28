@@ -20,6 +20,7 @@ from mandala.adapters.telegram.bot_token import load_bot_token_map
 from mandala.adapters.telegram.callback_ack import answer_callback_query_if_present
 from mandala.adapters.telegram.inbound_map import telegram_update_to_inbound_event
 from mandala.adapters.telegram.outbound_send import deliver_outbound_messages
+from mandala.adapters.telegram.photo_cache import persist_photo_file_ids
 from mandala.adapters.telegram.secrets import mask_bot_token
 from mandala.adapters.telegram.typing_keepalive import run_with_typing_keepalive
 from mandala.adapters.telegram.voice_transcribe import resolve_voice_to_text
@@ -98,12 +99,13 @@ def process_telegram_update(
     with engine.begin() as conn:
         outbound = run_with_typing_keepalive(api, int(chat_id), lambda: handle_inbound(event, conn))
 
-    deliver_outbound_messages(
+    uploaded = deliver_outbound_messages(
         api,
         chat_id=int(chat_id),
         messages=outbound,
         vertical_id=vertical_id,
     )
+    persist_photo_file_ids(engine, event, uploaded)
     answer_callback_query_if_present(api, update)
 
 

@@ -52,6 +52,7 @@ from mandala.verticals.client_knowledge import (
     AGENT_CARD_ASTRO_SYSTEM,
     AGENT_CARD_DESTINY_MATRIX_DATA,
     AGENT_CARD_NATAL_CHART_DATA,
+    AGENT_CARD_NATAL_WHEEL_FILE_ID,
 )
 from mandala.verticals.intake_config import IntakeStep, intake_steps_for_vertical
 from mandala.verticals.post_intake_offers import post_intake_completion_message
@@ -341,6 +342,63 @@ def _promo_nav_buttons() -> list[list[dict[str, str]]]:
     ]
 
 
+def _natal_wheel_photo_message(agent_card: dict[str, Any]) -> OutboundMessage | None:
+    """Сообщение с КОЛЕСОМ натальной карты (фото) или ``None``, если построить нельзя.
+
+    Быстрый путь — кэш ``file_id`` (мгновенно, без перерисовки). Иначе рендерим PNG-байты
+    колеса (детерминированно, kerykeion+cairosvg) и просим канал закешировать полученный
+    ``file_id``. Любая ошибка рендера → ``None`` (``/natal`` мягко деградирует до текста).
+    Кнопок у фото НЕТ (``buttons=[]``): навигация — на терминальном текстовом сообщении;
+    пустой список также помечает «здесь nav не нужен» для ``_guarantee_all_nav``.
+    """
+    birth_date = str(agent_card.get("birth_date") or "").strip()
+    birth_place = str(agent_card.get("birth_place") or "").strip()
+    if not birth_date or not birth_place:
+        return None
+    caption = f"🪐 Натальная карта · {birth_date} · {birth_place}"
+    cached = agent_card.get(AGENT_CARD_NATAL_WHEEL_FILE_ID)
+    if isinstance(cached, str) and cached:
+        return OutboundMessage(photo=cached, text=caption, buttons=[])
+    birth_time = str(agent_card.get("birth_time") or "unknown").strip()
+    system = str(agent_card.get(AGENT_CARD_ASTRO_SYSTEM) or "western")
+    # Координаты берём из сохранённой карты (без повторного геокодинга → /natal офлайновый).
+    coords: tuple[float, float, str] | None = None
+    natal = agent_card.get(AGENT_CARD_NATAL_CHART_DATA)
+    geo = natal.get("geo") if isinstance(natal, dict) else None
+    if isinstance(geo, dict) and geo.get("lat") is not None and geo.get("tz"):
+        coords = (float(geo["lat"]), float(geo["lng"]), str(geo["tz"]))
+    try:
+        from mandala.services.chart_wheel import render_natal_wheel_png
+
+        png = render_natal_wheel_png(birth_date, birth_time, birth_place, system, coords=coords)
+    except Exception:
+        logger.warning("natal wheel render failed place=%r", birth_place, exc_info=True)
+        return None
+    return OutboundMessage(
+        photo_bytes=png,
+        photo_filename="natal_wheel.png",
+        photo_cache_key=AGENT_CARD_NATAL_WHEEL_FILE_ID,
+        text=caption,
+        buttons=[],
+    )
+
+
+def _natal_messages(
+    agent_card: dict[str, Any], natal_data: dict[str, Any]
+) -> list[OutboundMessage]:
+    """Колесо (фото) + блочный текстовый разбор с инлайн-навигацией.
+
+    Фото — ведущее сообщение (короткая подпись), полный блочный разбор — отдельным
+    текстом (caption Telegram ~1024 симв. не вмещает весь блок). Nav — на тексте.
+    """
+    messages: list[OutboundMessage] = []
+    wheel = _natal_wheel_photo_message(agent_card)
+    if wheel is not None:
+        messages.append(wheel)
+    messages.append(render_natal_chart_message(natal_data))
+    return messages
+
+
 def _instant_natal(conn: Connection, user_id: UUID) -> list[OutboundMessage]:
     """``/natal``: мгновенный рендер сохранённой карты (при отсутствии — пересчёт)."""
     profiles = ProfileRepository(conn)
@@ -348,16 +406,17 @@ def _instant_natal(conn: Connection, user_id: UUID) -> list[OutboundMessage]:
     ac = dict(fresh.agent_card) if fresh else {}
     natal = ac.get(AGENT_CARD_NATAL_CHART_DATA)
     if isinstance(natal, dict) and natal:
-        return [render_natal_chart_message(natal)]
+        return _natal_messages(ac, natal)
 
     if str(ac.get("birth_date") or "").strip() and str(ac.get("birth_place") or "").strip():
         geo_error = _try_calculate_and_save_natal_chart(
             conn=conn, user_id=user_id, agent_card=ac, profiles=profiles
         )
         fresh2 = profiles.get_by_user_id(user_id)
-        natal2 = (dict(fresh2.agent_card) if fresh2 else {}).get(AGENT_CARD_NATAL_CHART_DATA)
+        ac2 = dict(fresh2.agent_card) if fresh2 else {}
+        natal2 = ac2.get(AGENT_CARD_NATAL_CHART_DATA)
         if isinstance(natal2, dict) and natal2:
-            return [render_natal_chart_message(natal2)]
+            return _natal_messages(ac2, natal2)
         text = geo_error or (
             "Не удалось рассчитать натальную карту. Проверьте дату, место и время рождения."
         )
@@ -425,7 +484,12 @@ def _try_calculate_and_save_natal_chart(
             birth_place=birth_place,
             system=system,
         )
-        profiles.merge_agent_card(user_id, {AGENT_CARD_NATAL_CHART_DATA: chart_data})
+        # Пересчёт карты инвалидирует кэш колеса (правка профиля/смена системы): сбрасываем
+        # file_id в "" — следующий /natal перерисует PNG и закеширует новый file_id.
+        profiles.merge_agent_card(
+            user_id,
+            {AGENT_CARD_NATAL_CHART_DATA: chart_data, AGENT_CARD_NATAL_WHEEL_FILE_ID: ""},
+        )
         logger.info("natal chart calculated system=%s user_id=%s", system, user_id)
         return None
     except ValueError as exc:

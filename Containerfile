@@ -19,6 +19,14 @@ RUN uv sync --frozen --no-dev --extra deploy --no-editable
 FROM python:3.11-slim-bookworm AS runtime
 WORKDIR /app
 
+# libcairo2 — растеризация SVG→PNG (cairosvg/cairocffi грузят libcairo.so.2 в рантайме)
+# для колеса натальной карты (services/chart_wheel.py). fonts-dejavu-core — базовый
+# шрифт для числовых подписей (градусы) в SVG kerykeion (глифы планет/знаков —
+# векторные <path>, шрифт им не нужен; цифрам — нужен). fontconfig тянется как зависимость.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libcairo2 fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin mandala
 
 COPY --from=builder /app/.venv /app/.venv

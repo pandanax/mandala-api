@@ -82,26 +82,58 @@ def _send_message_html_or_plain(
             raise
 
 
+def _largest_photo_file_id(result: dict[str, Any] | None) -> str | None:
+    """``file_id`` самого крупного размера из ответа ``sendPhoto`` (для кэша)."""
+    if not isinstance(result, dict):
+        return None
+    sizes = result.get("photo")
+    if not isinstance(sizes, list) or not sizes:
+        return None
+    best: str | None = None
+    best_area = -1
+    for s in sizes:
+        if not isinstance(s, dict):
+            continue
+        fid = s.get("file_id")
+        if not isinstance(fid, str):
+            continue
+        area = int(s.get("width", 0) or 0) * int(s.get("height", 0) or 0)
+        if area >= best_area:
+            best_area = area
+            best = fid
+    return best
+
+
 def _send_photo_caption_html_or_plain(
     api: TelegramBotApiClient,
     *,
     chat_id: int,
-    photo: str,
+    photo: str | None,
+    photo_bytes: bytes | None,
+    filename: str,
     caption: str | None,
     reply_markup: dict[str, Any] | None,
     term_links: Sequence[dict[str, str]] | None = None,
     bot_username: str | None = None,
-) -> None:
+) -> dict[str, Any] | None:
+    """Отправить фото (URL/``file_id`` или байты multipart'ом). Вернуть ответ ``sendPhoto``."""
     if caption is None:
-        api.send_photo(chat_id=chat_id, photo=photo, reply_markup=reply_markup)
-        return
+        return api.send_photo(
+            chat_id=chat_id,
+            photo=photo,
+            photo_bytes=photo_bytes,
+            filename=filename,
+            reply_markup=reply_markup,
+        )
     formatted = format_llm_text_for_telegram_html(
         caption, term_links=term_links, bot_username=bot_username
     )
     try:
-        api.send_photo(
+        return api.send_photo(
             chat_id=chat_id,
             photo=photo,
+            photo_bytes=photo_bytes,
+            filename=filename,
             caption=formatted,
             reply_markup=reply_markup,
             parse_mode="HTML",
@@ -113,14 +145,15 @@ def _send_photo_caption_html_or_plain(
                 chat_id,
                 e.description,
             )
-            api.send_photo(
+            return api.send_photo(
                 chat_id=chat_id,
                 photo=photo,
+                photo_bytes=photo_bytes,
+                filename=filename,
                 caption=caption,
                 reply_markup=reply_markup,
             )
-        else:
-            raise
+        raise
 
 
 def _buttons_to_reply_markup(buttons: list[list[dict[str, str]]]) -> dict[str, Any]:
@@ -146,11 +179,16 @@ def deliver_outbound_messages(
     messages: list[OutboundMessage],
     vertical_id: str | None = None,
     user_id: UUID | None = None,
-) -> None:
+) -> dict[str, str]:
     """Отправить ответы пользователю (``sendMessage`` / ``sendPhoto``).
 
     ``vertical_id`` / ``user_id`` — только для операционных логов (тикет 20), без PII текста.
+
+    Возвращает карту ``photo_cache_key → file_id`` для сообщений, у которых были
+    загружены байты фото с заданным ``photo_cache_key`` — вызывающий код может
+    сохранить эти ``file_id`` в ``agent_card`` для мгновенной переотправки. Обычно пусто.
     """
+    uploaded_file_ids: dict[str, str] = {}
     if vertical_id is not None and messages:
         n_photo = sum(1 for m in messages if m.photo)
         logger.info(
@@ -195,21 +233,27 @@ def deliver_outbound_messages(
         markup: dict[str, Any] | None = None
         if msg.buttons:
             markup = _buttons_to_reply_markup(msg.buttons)
-        elif not sticky_cleared and (msg.text is not None or msg.photo):
+        elif not sticky_cleared and (msg.text is not None or msg.photo or msg.photo_bytes):
             # Крепим только к реально отправляемому сообщению (иначе снятие «потеряется»).
             markup = {"remove_keyboard": True}
             sticky_cleared = True
 
-        if msg.photo:
-            _send_photo_caption_html_or_plain(
+        if msg.photo_bytes or msg.photo:
+            result = _send_photo_caption_html_or_plain(
                 api,
                 chat_id=chat_id,
                 photo=msg.photo,
+                photo_bytes=msg.photo_bytes,
+                filename=msg.photo_filename,
                 caption=msg.text,
                 reply_markup=markup,
                 term_links=msg.term_links,
                 bot_username=bot_username,
             )
+            if msg.photo_bytes is not None and msg.photo_cache_key:
+                fid = _largest_photo_file_id(result)
+                if fid:
+                    uploaded_file_ids[msg.photo_cache_key] = fid
         elif msg.text is not None:
             parts = split_text_for_telegram(msg.text)
             for i, part in enumerate(parts):
@@ -224,3 +268,5 @@ def deliver_outbound_messages(
                     bot_username=bot_username,
                 )
         # TODO(тикет 12+): ``defer`` — сценарий отложенных ответов (оплата — см. ``invoice`` выше).
+
+    return uploaded_file_ids

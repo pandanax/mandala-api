@@ -202,23 +202,33 @@ def _aspect_ru(name: str) -> str:
     return _ASPECT_RU.get(name.lower(), name)
 
 
-def calculate_natal_chart(
+def build_astrological_subject(
     birth_date: str,
     birth_time: str,
     birth_place: str,
     system: str = "western",
-) -> dict[str, Any]:
-    """Рассчитать натальную карту математически.
+    *,
+    coords: tuple[float, float, str] | None = None,
+) -> tuple[Any, bool, tuple[float, float, str]]:
+    """Построить kerykeion ``AstrologicalSubject`` по данным рождения.
+
+    Единая точка сборки subject'а: используется и расчётом карты
+    (:func:`calculate_natal_chart`), и рендером колеса
+    (:mod:`mandala.services.chart_wheel`) — так школа/дома/айянамша гарантированно
+    совпадают, а не задаются в двух местах и не расходятся.
 
     Args:
         birth_date: 'DD.MM.YYYY'
         birth_time: 'HH:MM' или 'unknown'
         birth_place: название города/населённого пункта
         system: 'western' (тропическая) или 'vedic' (сидерическая Lahiri)
+        coords: опционально готовые ``(lat, lng, tz_str)`` — тогда геокодер НЕ
+            вызывается (сеть не нужна). Так рендер колеса переиспользует координаты,
+            уже сохранённые при расчёте карты, и ``/natal`` остаётся офлайновым.
 
     Returns:
-        dict с полями sun_sign, moon_sign, ascendant, planets, aspects,
-        chart_system, calculated_at, birth_place_resolved.
+        (subject, time_known, (lat, lng, tz_str)). ``time_known`` — было ли время
+        известно (при неизвестном берётся полдень; оси/дома тогда не осмысленны).
     """
     from kerykeion import AstrologicalSubject
 
@@ -240,8 +250,8 @@ def calculate_natal_chart(
     else:
         hour, minute = 12, 0  # полдень при неизвестном времени
 
-    # --- геокодирование ---
-    lat, lng, tz_str = _geocode_city(birth_place)
+    # --- геокодирование (или готовые координаты) ---
+    lat, lng, tz_str = coords if coords is not None else _geocode_city(birth_place)
 
     # --- параметры системы ---
     # Zodiac: западная — тропический, ведическая — сидерический с айянамшей Lahiri.
@@ -274,6 +284,30 @@ def calculate_natal_chart(
         kwargs["houses_system_identifier"] = houses_system
 
     subject = AstrologicalSubject("person", **kwargs)
+    return subject, time_known, (lat, lng, tz_str)
+
+
+def calculate_natal_chart(
+    birth_date: str,
+    birth_time: str,
+    birth_place: str,
+    system: str = "western",
+) -> dict[str, Any]:
+    """Рассчитать натальную карту математически.
+
+    Args:
+        birth_date: 'DD.MM.YYYY'
+        birth_time: 'HH:MM' или 'unknown'
+        birth_place: название города/населённого пункта
+        system: 'western' (тропическая) или 'vedic' (сидерическая Lahiri)
+
+    Returns:
+        dict с полями sun_sign, moon_sign, ascendant, planets, aspects,
+        chart_system, calculated_at, birth_place_resolved.
+    """
+    subject, time_known, geo = build_astrological_subject(
+        birth_date, birth_time, birth_place, system
+    )
 
     # --- извлечение планет ---
     planet_attrs = [
@@ -355,6 +389,9 @@ def calculate_natal_chart(
         "chart_system_key": system,
         "time_known": time_known,
         "birth_place_resolved": birth_place,
+        # Координаты места (lat, lng, tz) — чтобы колесо карты (chart_wheel) строило
+        # subject БЕЗ повторного геокодинга: /natal остаётся офлайновым и быстрым.
+        "geo": {"lat": geo[0], "lng": geo[1], "tz": geo[2]},
         "calculated_at": datetime.now(tz=UTC).isoformat(),
     }
 

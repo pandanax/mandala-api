@@ -132,6 +132,87 @@ class TelegramBotApiClient:
         msg = "telegram: исчерпаны ретраи"
         raise TelegramApiError(msg)
 
+    def call_multipart(
+        self,
+        method: str,
+        data: dict[str, Any],
+        files: dict[str, tuple[str, bytes, str]],
+    ) -> Any:
+        """POST multipart/form-data (загрузка файла) с ретраями; попутно метрика."""
+        outcome = "error"
+        try:
+            result = self._call_multipart_impl(method, data, files)
+            outcome = "ok"
+            return result
+        finally:
+            record_telegram_delivery(method=method, outcome=outcome)
+
+    def _call_multipart_impl(
+        self,
+        method: str,
+        data: dict[str, Any],
+        files: dict[str, tuple[str, bytes, str]],
+    ) -> Any:
+        """Как :meth:`_call_impl`, но ``data``/``files`` (загрузка байтов файла)."""
+        masked = mask_bot_token(self._token)
+        last_err: Exception | None = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                r = self._client.post(self._url(method), data=data, files=files)
+            except httpx.RequestError as e:
+                last_err = e
+                wait = min(2.0**attempt, 30.0)
+                logger.warning(
+                    "telegram multipart error method=%s attempt=%s token=%s wait=%.1fs err=%s",
+                    method,
+                    attempt + 1,
+                    masked,
+                    wait,
+                    e,
+                )
+                time.sleep(wait)
+                continue
+
+            if r.status_code == 429:
+                retry_after = float(r.headers.get("retry-after", "2"))
+                wait = min(max(retry_after, 1.0), 60.0)
+                logger.warning(
+                    "telegram 429 method=%s attempt=%s token=%s retry_after=%.1fs",
+                    method,
+                    attempt + 1,
+                    masked,
+                    wait,
+                )
+                time.sleep(wait)
+                continue
+
+            if r.status_code >= 500:
+                wait = min(2.0**attempt, 30.0)
+                logger.warning(
+                    "telegram 5xx method=%s status=%s attempt=%s token=%s wait=%.1fs",
+                    method,
+                    r.status_code,
+                    attempt + 1,
+                    masked,
+                    wait,
+                )
+                time.sleep(wait)
+                continue
+
+            payload = r.json()
+            if not isinstance(payload, dict):
+                msg = "telegram: ответ не JSON-объект"
+                raise TelegramApiError(msg)
+            if not payload.get("ok"):
+                desc = str(payload.get("description", payload))
+                raise TelegramApiError(desc)
+            return payload.get("result")
+
+        if last_err is not None:
+            raise last_err
+        msg = "telegram: исчерпаны ретраи"
+        raise TelegramApiError(msg)
+
     def get_me(self) -> dict[str, Any]:
         """``getMe`` — данные бота (в т.ч. ``username`` для deep-link ссылок)."""
         raw = self.call("getMe")
@@ -229,11 +310,37 @@ class TelegramBotApiClient:
         self,
         *,
         chat_id: int,
-        photo: str,
+        photo: str | None = None,
+        photo_bytes: bytes | None = None,
+        filename: str = "chart.png",
         caption: str | None = None,
         reply_markup: dict[str, Any] | None = None,
         parse_mode: str | None = None,
     ) -> dict[str, Any]:
+        """``sendPhoto``. При ``photo_bytes`` — multipart-загрузка файла, иначе URL/``file_id``.
+
+        Ответ содержит массив ``photo`` (размеры) с ``file_id`` — вызывающий код может
+        закешировать самый крупный ``file_id`` для мгновенной переотправки.
+        """
+        if photo_bytes is not None:
+            data: dict[str, Any] = {"chat_id": str(chat_id)}
+            if caption is not None:
+                data["caption"] = caption
+            if parse_mode is not None:
+                data["parse_mode"] = parse_mode
+            if reply_markup is not None:
+                # В multipart reply_markup передаётся JSON-строкой (не вложенным объектом).
+                import json
+
+                data["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
+            files = {"photo": (filename, photo_bytes, "image/png")}
+            out = self.call_multipart("sendPhoto", data, files)
+            assert isinstance(out, dict)
+            return out
+
+        if photo is None:
+            msg = "send_photo: нужен photo (URL/file_id) или photo_bytes"
+            raise TelegramApiError(msg)
         p: dict[str, Any] = {"chat_id": chat_id, "photo": photo}
         if caption is not None:
             p["caption"] = caption

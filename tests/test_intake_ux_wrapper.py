@@ -172,10 +172,13 @@ def test_instant_natal_and_matrix_render_from_db(store: dict[str, Any]) -> None:
     with patch(_GEO, return_value=_MOSCOW):
         _drive_full_intake(store, uid)
 
-    # Мгновенный рендер БЕЗ сети (геокодер НЕ вызывается — данные уже в БД).
+    # Мгновенный рендер БЕЗ сети (геокодер НЕ вызывается — координаты уже в БД):
+    # колесо-картинка (фото) + блочный текст с навигацией на терминальном сообщении.
     natal = _run(store, uid, "/natal")
-    _assert_all_have_buttons(natal)
-    assert "натальная карта" in (natal[0].text or "").lower()
+    assert any(m.photo_bytes or m.photo for m in natal), "ожидалось колесо-фото"
+    text_msg = natal[-1]
+    assert text_msg.buttons, "у терминального текста должна быть навигация"
+    assert "натальная карта" in (text_msg.text or "").lower()
 
     matrix = _run(store, uid, "/matrix")
     _assert_all_have_buttons(matrix)
