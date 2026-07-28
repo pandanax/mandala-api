@@ -30,9 +30,26 @@ code: `src/mandala/astro/natal_chart.py`.
   a saved LLM chart text) — better to honestly not build it than fabricate. The old
   `natal_chart_text` LLM-authored path is gone from the prompt/injection (the parser key stays only
   to strip the `---mandala---` marker). "Has a chart" = computed data present, not saved text.
+- **Stored derived data (block render).** `calculate_natal_chart` also saves the four main axes
+  (`ascendant`/`descendant`/`midheaven`/`imum_coeli`, only when `time_known`) and
+  `element_balance` (Fire/Earth/Air/Water counts over the 10 planets, pure sign arithmetic —
+  `compute_element_balance`). `house_number` maps kerykeion's `'Tenth_House'`→`10`. `/natal`
+  renders these in **reference-style blocks** (`services/chart_render.render_natal_chart_text`:
+  axes → luminaries+mask → retrograde → planets-by-sign → planets-by-house → element balance →
+  aspects split harmonious/tense → «Снаружи Асц, внутри Солнце» contrast). Render is
+  deterministic (never LLM), tolerant of legacy saved data (missing axes/elements skipped or
+  recomputed). Deep interpretation still goes through the LLM «Углублённый разбор» button.
+- **Birth time is asked as LOCAL time.** `intake_steps.json` `birth_time` prompt explicitly asks
+  for local birthplace time; `intake_flow._echo_line` confirms «приму как МЕСТНОЕ время».
+- **Chart-wheel image is deferred (needs-decision).** A kerykeion `KerykeionChartSVG` wheel is
+  pure math and generates offline, but every SVG→PNG path (cairosvg; svglib→reportlab5 whose PNG
+  backend is `rlPyCairo`) needs **system libcairo** in the prod image, and `OutboundMessage.photo`
+  is a URL/`file_id` `str` with no bytes-upload plumbing. Shipped text-only; do not add libcairo
+  to the image without a deploy decision.
 - **Regression:** `tests/test_evgenia_natal_regression.py` (two-school accuracy) +
   `tests/test_natal_tz_and_no_fabrication.py` (tz-not-UTC raises, local-time ascendant, western
-  Placidus reference, no-fabrication). Both mock the geocoder and run offline.
+  Placidus reference, no-fabrication) + `tests/test_natal_block_render.py` (all blocks present,
+  axes saved, element balance, local-time prompt/echo). All mock the geocoder and run offline.
 
 ### LLM navigation protocol (astrology «robot navigator» UX)
 

@@ -212,6 +212,8 @@ def _echo_line(field_key: str, value: str, geo: PlaceResolution | None) -> str:
         "нет",
     ):
         return f"{label}: не знаю (рассчитаю карту без асцендента и домов)."
+    if field_key == "birth_time":
+        return f"{label}: {value} (приму как МЕСТНОЕ время места рождения). Верно?"
     if field_key == "birth_place" and geo is not None:
         return f"{label}: {value} (часовой пояс {geo.tz}). Верно?"
     return f"{label}: {value}. Верно?"

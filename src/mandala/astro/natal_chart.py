@@ -100,6 +100,66 @@ def _geocode_city(city: str) -> tuple[float, float, str]:
     return lat, lng, tz_str
 
 
+# Стихия каждого знака (детерминированно, по русскому названию знака). Баланс стихий
+# считается из знаков планет — чистая арифметика, без эфемерид.
+_ELEMENT_BY_SIGN: dict[str, str] = {
+    "Овен": "Огонь",
+    "Лев": "Огонь",
+    "Стрелец": "Огонь",
+    "Телец": "Земля",
+    "Дева": "Земля",
+    "Козерог": "Земля",
+    "Близнецы": "Воздух",
+    "Весы": "Воздух",
+    "Водолей": "Воздух",
+    "Рак": "Вода",
+    "Скорпион": "Вода",
+    "Рыбы": "Вода",
+}
+_ELEMENT_ORDER: tuple[str, ...] = ("Огонь", "Земля", "Воздух", "Вода")
+
+# Имена домов kerykeion → номер (obj.house возвращает 'First_House' и т.п.).
+_HOUSE_NAME_TO_NUM: dict[str, int] = {
+    "First_House": 1,
+    "Second_House": 2,
+    "Third_House": 3,
+    "Fourth_House": 4,
+    "Fifth_House": 5,
+    "Sixth_House": 6,
+    "Seventh_House": 7,
+    "Eighth_House": 8,
+    "Ninth_House": 9,
+    "Tenth_House": 10,
+    "Eleventh_House": 11,
+    "Twelfth_House": 12,
+}
+
+
+def house_number(house: object) -> int | None:
+    """Номер дома из значения ``planet['house']`` (kerykeion-имя или уже число)."""
+    if isinstance(house, int):
+        return house if 1 <= house <= 12 else None
+    if isinstance(house, str):
+        return _HOUSE_NAME_TO_NUM.get(house)
+    return None
+
+
+def compute_element_balance(planets: dict[str, Any]) -> dict[str, int]:
+    """Баланс стихий: сколько планет в знаках каждой стихии (детерминированно).
+
+    Считаются 10 планет (Солнце…Плутон) по русскому знаку — светила и планеты, без
+    осей/узлов, чтобы результат был однозначным и воспроизводимым.
+    """
+    balance: dict[str, int] = {el: 0 for el in _ELEMENT_ORDER}
+    for data in planets.values():
+        if not isinstance(data, dict):
+            continue
+        element = _ELEMENT_BY_SIGN.get(str(data.get("sign", "")))
+        if element:
+            balance[element] += 1
+    return balance
+
+
 def _sign_ru(sign: str) -> str:
     return _SIGN_RU.get(sign[:3], sign)
 
@@ -213,13 +273,24 @@ def calculate_natal_chart(
             "retrograde": bool(getattr(obj, "retrograde", False)),
         }
 
-    # --- асцендент ---
+    # --- главные оси (только при известном времени: зависят от домов) ---
+    # Асцендент (АСЦ) = куспид I дома; Десцендент (ДСЦ) = VII; Середина Неба (MC) = X;
+    # Дно Неба (IC) = IV. Знак каждой оси — из соответствующего дома kerykeion.
+    def _house_sign(attr: str) -> str | None:
+        obj = getattr(subject, attr, None)
+        if obj is None:
+            return None
+        return _sign_ru(getattr(obj, "sign", ""))
+
     ascendant: str | None = None
+    descendant: str | None = None
+    midheaven: str | None = None
+    imum_coeli: str | None = None
     if time_known:
-        first_house = getattr(subject, "first_house", None)
-        if first_house is not None:
-            sign_abbr = getattr(first_house, "sign", "")
-            ascendant = _sign_ru(sign_abbr)
+        ascendant = _house_sign("first_house")
+        descendant = _house_sign("seventh_house")
+        midheaven = _house_sign("tenth_house")
+        imum_coeli = _house_sign("fourth_house")
 
     # --- аспекты ---
     aspects: list[dict[str, Any]] = []
@@ -244,7 +315,11 @@ def calculate_natal_chart(
         "sun_sign": sun_sign,
         "moon_sign": moon_sign,
         "ascendant": ascendant,
+        "descendant": descendant,
+        "midheaven": midheaven,
+        "imum_coeli": imum_coeli,
         "planets": planets,
+        "element_balance": compute_element_balance(planets),
         "aspects": aspects,
         "chart_system": "ведическая (Lahiri)" if system == "vedic" else "западная (тропическая)",
         "chart_system_key": system,
@@ -363,8 +438,19 @@ def natal_chart_to_system_text(chart: dict[str, Any]) -> str:
     ]
     if chart.get("ascendant"):
         lines.append(f"Асцендент (АСЦ): {chart['ascendant']}")
+        if chart.get("descendant"):
+            lines.append(f"Десцендент (ДСЦ): {chart['descendant']}")
+        if chart.get("midheaven"):
+            lines.append(f"Середина Неба (MC): {chart['midheaven']}")
+        if chart.get("imum_coeli"):
+            lines.append(f"Дно Неба (IC): {chart['imum_coeli']}")
     else:
         lines.append("Асцендент: время рождения неизвестно, не рассчитан")
+
+    balance = chart.get("element_balance")
+    if isinstance(balance, dict) and any(balance.values()):
+        parts = [f"{el} {n}" for el, n in balance.items() if n]
+        lines.append("Баланс стихий: " + ", ".join(parts))
 
     planets = chart.get("planets", {})
     if planets:

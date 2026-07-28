@@ -15,7 +15,17 @@ from __future__ import annotations
 
 from typing import Any
 
+from mandala.astro.natal_chart import compute_element_balance, house_number
 from mandala.domain.contracts import OutboundMessage
+
+# Короткие СТАТИЧЕСКИЕ подписи (не LLM) к ядру карты — что означает каждая точка.
+_SUN_MEANING = "ядро личности, воля, самовыражение"
+_MOON_MEANING = "эмоции, внутренний мир, потребность в опоре"
+_ASC_MEANING = "маска, первое впечатление, как вас видят"
+
+# Классификация аспектов для блока (по русскому названию из natal_chart).
+_HARMONIOUS_ASPECTS = frozenset({"трин", "секстиль"})
+_TENSE_ASPECTS = frozenset({"квадрат", "оппозиция", "полуквадрат", "полутораквадрат"})
 
 
 def _btn(label: str, callback_data: str) -> dict[str, str]:
@@ -40,53 +50,179 @@ def matrix_nav_buttons() -> list[list[dict[str, str]]]:
     ]
 
 
+def _block_axes(natal_data: dict[str, Any], lines: list[str]) -> None:
+    """🧭 Главные оси: Асцендент, Десцендент, Середина Неба (MC), Дно Неба (IC)."""
+    asc = natal_data.get("ascendant")
+    if not asc:
+        if not natal_data.get("time_known", True):
+            lines.append("")
+            lines.append(
+                "🧭 **Главные оси:** время рождения неизвестно — оси и дома не рассчитаны."
+            )
+        return
+    lines.append("")
+    lines.append("🧭 **Главные оси**")
+    lines.append(f"• Асцендент (АСЦ): {asc}")
+    if natal_data.get("descendant"):
+        lines.append(f"• Десцендент (ДСЦ): {natal_data['descendant']}")
+    if natal_data.get("midheaven"):
+        lines.append(f"• Середина Неба (MC): {natal_data['midheaven']}")
+    if natal_data.get("imum_coeli"):
+        lines.append(f"• Дно Неба (IC): {natal_data['imum_coeli']}")
+
+
+def _block_luminaries(natal_data: dict[str, Any], lines: list[str]) -> None:
+    """☀️🌙⬆️ Солнце / Луна / Асцендент — ядро, эмоции, маска (статичные подписи)."""
+    lines.append("")
+    lines.append("☀️ **Светила и маска**")
+    lines.append(f"• ☀️ Солнце — {natal_data.get('sun_sign', '?')}: {_SUN_MEANING}")
+    lines.append(f"• 🌙 Луна — {natal_data.get('moon_sign', '?')}: {_MOON_MEANING}")
+    asc = natal_data.get("ascendant")
+    if asc:
+        lines.append(f"• ⬆️ Асцендент — {asc}: {_ASC_MEANING}")
+
+
+def _block_retrograde(planets: dict[str, Any], lines: list[str]) -> None:
+    """℞ Ретроградные планеты отдельным блоком."""
+    retro = [
+        planet
+        for planet, data in planets.items()
+        if isinstance(data, dict) and data.get("retrograde")
+    ]
+    lines.append("")
+    if retro:
+        lines.append("℞ **Ретроградные планеты:** " + ", ".join(retro))
+    else:
+        lines.append("℞ **Ретроградные планеты:** нет")
+
+
+def _block_planets_by_sign(planets: dict[str, Any], lines: list[str]) -> None:
+    """🪐 Планеты по знакам (планета, знак, градус)."""
+    lines.append("")
+    lines.append("🪐 **Планеты в знаках**")
+    for planet, data in planets.items():
+        if not isinstance(data, dict):
+            continue
+        sign = data.get("sign", "?")
+        deg = data.get("degree")
+        retro = " ℞" if data.get("retrograde") else ""
+        piece = f"• {planet}: {sign}"
+        if isinstance(deg, (int, float)):
+            piece += f", {deg}°"
+        piece += retro
+        lines.append(piece)
+
+
+def _block_planets_by_house(planets: dict[str, Any], lines: list[str]) -> None:
+    """🏠 Планеты по домам (планета → номер дома)."""
+    housed = []
+    for planet, data in planets.items():
+        if not isinstance(data, dict):
+            continue
+        num = house_number(data.get("house"))
+        if num is not None:
+            housed.append((planet, num))
+    if not housed:
+        return
+    lines.append("")
+    lines.append("🏠 **Планеты в домах**")
+    for planet, num in housed:
+        lines.append(f"• {planet}: {num} дом")
+
+
+def _block_elements(natal_data: dict[str, Any], planets: dict[str, Any], lines: list[str]) -> None:
+    """⚖️ Баланс стихий (Огонь/Земля/Воздух/Вода) — детерминированно из знаков планет."""
+    balance = natal_data.get("element_balance")
+    if not (isinstance(balance, dict) and any(balance.values())):
+        balance = compute_element_balance(planets)
+    if not any(balance.values()):
+        return
+    lines.append("")
+    lines.append("⚖️ **Баланс стихий**")
+    emoji = {"Огонь": "🔥", "Земля": "🌍", "Воздух": "💨", "Вода": "💧"}
+    for element in ("Огонь", "Земля", "Воздух", "Вода"):
+        n = balance.get(element, 0)
+        lines.append(f"• {emoji.get(element, '')} {element}: {n}")
+    top = max(balance.values())
+    dominant = [el for el in ("Огонь", "Земля", "Воздух", "Вода") if balance.get(el, 0) == top]
+    if top and len(dominant) == 1:
+        lines.append(f"_Преобладает: {dominant[0]}._")
+
+
+def _block_aspects(aspects: list[Any], lines: list[str]) -> None:
+    """🔗 Аспекты, разделённые на гармоничные и напряжённые."""
+    harmonious: list[str] = []
+    tense: list[str] = []
+    other: list[str] = []
+    for asp in aspects:
+        if not isinstance(asp, dict):
+            continue
+        name = str(asp.get("aspect", "?"))
+        orb = asp.get("orb")
+        orb_s = f" (орб {orb}°)" if isinstance(orb, (int, float)) else ""
+        line = f"• {asp.get('planet1', '?')} — {asp.get('planet2', '?')}: {name}{orb_s}"
+        if name in _HARMONIOUS_ASPECTS:
+            harmonious.append(line)
+        elif name in _TENSE_ASPECTS:
+            tense.append(line)
+        else:
+            other.append(line)
+    if not (harmonious or tense or other):
+        return
+    lines.append("")
+    lines.append("🔗 **Аспекты**")
+    if harmonious:
+        lines.append("_Гармоничные:_")
+        lines.extend(harmonious[:6])
+    if tense:
+        lines.append("_Напряжённые:_")
+        lines.extend(tense[:6])
+    if other and not (harmonious or tense):
+        lines.extend(other[:6])
+
+
+def _block_contrast(natal_data: dict[str, Any], lines: list[str]) -> None:
+    """🎭 Контраст «Снаружи <Асцендент>, внутри <Солнце>»."""
+    asc = natal_data.get("ascendant")
+    sun = natal_data.get("sun_sign")
+    if not (asc and sun):
+        return
+    lines.append("")
+    lines.append(f"🎭 **Снаружи {asc}, внутри {sun}**")
+    lines.append(
+        f"Мир видит вашу маску ({asc}: {_ASC_MEANING}), а движет вами суть ({sun}: {_SUN_MEANING})."
+    )
+
+
 def render_natal_chart_text(natal_data: dict[str, Any]) -> str:
-    """Человекочитаемый разбор сохранённой натальной карты (без LLM)."""
+    """Блочный человекочитаемый разбор сохранённой натальной карты (без LLM).
+
+    Структура повторяет подачу референсного сервиса: оси → светила → ретро →
+    планеты по знакам → планеты по домам → баланс стихий → аспекты → контраст.
+    Устойчив к старым сохранённым данным (без осей/стихий): недостающие блоки
+    просто пропускаются, баланс стихий при отсутствии считается на лету.
+    """
     system = natal_data.get("chart_system", "")
     lines: list[str] = ["🪐 **Ваша натальная карта**"]
     if system:
         lines.append(f"_Система: {system}_")
-    lines.append("")
-    lines.append(f"☀️ **Солнце:** {natal_data.get('sun_sign', '?')}")
-    lines.append(f"🌙 **Луна:** {natal_data.get('moon_sign', '?')}")
-    asc = natal_data.get("ascendant")
-    if asc:
-        lines.append(f"⬆️ **Асцендент:** {asc}")
-    elif not natal_data.get("time_known", True):
-        lines.append("⬆️ **Асцендент:** время рождения неизвестно — не рассчитан")
 
-    planets = natal_data.get("planets")
-    if isinstance(planets, dict) and planets:
-        lines.append("")
-        lines.append("**Планеты в знаках:**")
-        for planet, data in planets.items():
-            if not isinstance(data, dict):
-                continue
-            sign = data.get("sign", "?")
-            deg = data.get("degree")
-            house = data.get("house")
-            retro = " ℞" if data.get("retrograde") else ""
-            piece = f"• {planet}: {sign}"
-            if isinstance(deg, (int, float)):
-                piece += f", {deg}°"
-            if house:
-                piece += f" (дом {house})"
-            piece += retro
-            lines.append(piece)
+    planets_raw = natal_data.get("planets")
+    planets: dict[str, Any] = planets_raw if isinstance(planets_raw, dict) else {}
+
+    _block_axes(natal_data, lines)
+    _block_luminaries(natal_data, lines)
+    if planets:
+        _block_retrograde(planets, lines)
+        _block_planets_by_sign(planets, lines)
+        _block_planets_by_house(planets, lines)
+        _block_elements(natal_data, planets, lines)
 
     aspects = natal_data.get("aspects")
     if isinstance(aspects, list) and aspects:
-        lines.append("")
-        lines.append("**Ключевые аспекты:**")
-        for asp in aspects[:8]:
-            if not isinstance(asp, dict):
-                continue
-            orb = asp.get("orb")
-            orb_s = f" (орб {orb}°)" if isinstance(orb, (int, float)) else ""
-            lines.append(
-                f"• {asp.get('planet1', '?')} — {asp.get('planet2', '?')}: "
-                f"{asp.get('aspect', '?')}{orb_s}"
-            )
+        _block_aspects(aspects, lines)
+
+    _block_contrast(natal_data, lines)
 
     lines.append("")
     lines.append("Нажмите «Углублённый разбор», чтобы я растолковал карту подробно.")
