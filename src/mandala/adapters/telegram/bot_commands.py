@@ -28,6 +28,7 @@ BOT_COMMANDS: list[tuple[str, str]] = [
     ("matrix", "Матрица судьбы"),
     ("numerology", "Нумерология"),
     ("forecast", "Прогноз"),
+    ("morning", "Утренний прогноз"),
     ("profile", "Мой профиль"),
     ("start", "Начать заново"),
     ("reset", "Полный сброс профиля"),

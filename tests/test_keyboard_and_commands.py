@@ -92,6 +92,62 @@ def test_topics_callback_routes_to_deterministic_menu_not_llm(monkeypatch) -> No
     assert {"/natal", "/matrix", "/numerology", "mdl:forecast_menu"} <= set(codes)
 
 
+def test_morning_callback_routes_to_settings_not_llm(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # Кнопка «⚙️ Настроить» (mdl:morning) через handle_inbound → настройка рассылки, НЕ LLM.
+    from unittest.mock import MagicMock
+    from uuid import uuid4
+
+    import mandala.domain.handler as handler_mod
+    import mandala.services.daily_forecast_settings as dfs_mod
+    from mandala.domain.contracts import InboundEvent
+
+    store: dict[object, dict[str, object]] = {}
+
+    class _Profiles:
+        def __init__(self, _conn: object) -> None:
+            pass
+
+        def ensure_row(self, **_kw: object) -> None:
+            return None
+
+        def get_by_user_id(self, uid: object) -> object:
+            prof = MagicMock()
+            prof.agent_card = dict(store.get(uid, {}))
+            prof.scenario_state = {"intake_complete": True}
+            return prof
+
+        def merge_agent_card(self, uid: object, patch: dict[str, object]) -> None:
+            store.setdefault(uid, {}).update(patch)
+
+    class _Identity:
+        _uid = uuid4()
+
+        def __init__(self, _conn: object) -> None:
+            pass
+
+        def get_or_create_user(self, **_kw: object) -> object:
+            return _Identity._uid
+
+    monkeypatch.setattr(handler_mod, "ProfileRepository", _Profiles)
+    monkeypatch.setattr(handler_mod, "UserIdentityService", _Identity)
+    monkeypatch.setattr(dfs_mod, "ProfileRepository", _Profiles)
+    monkeypatch.setattr(
+        handler_mod,
+        "handle_inbound_text_llm",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("ушло в LLM вместо настройки")),
+    )
+
+    ev = InboundEvent(
+        vertical_id="astrology", channel="telegram", external_user_id="1", text="mdl:morning:off"
+    )
+    out = handler_mod.handle_inbound(ev, MagicMock())
+
+    assert len(out) == 1
+    assert out[0].buttons, "у настройки должны быть кнопки"
+    # Настройка применена детерминированно (без LLM).
+    assert store[_Identity._uid]["daily_forecast_enabled"] is False
+
+
 def test_forecast_menu_returns_four_period_inline_buttons() -> None:
     out = _handle_forecast_menu()
     assert len(out) == 1

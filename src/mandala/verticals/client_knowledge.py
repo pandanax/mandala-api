@@ -26,6 +26,17 @@ AGENT_CARD_NUMEROLOGY_DATA = "numerology_data"
 # Ключ в ``agent_card``: активная система (western/vedic).
 AGENT_CARD_ASTRO_SYSTEM = "astro_system"
 
+# --- Утренняя рассылка (проактивный девиз-мотиватор, см. services/daily_forecast.py) ---
+# Все три ключа живут в ``agent_card`` (без миграции). Время трактуется в фиксированном
+# МСК (Europe/Moscow) для всех — не по месту рождения.
+#
+# Включена ли рассылка. **Отсутствие ключа = True** (по умолчанию ВКЛ для существующих и новых).
+AGENT_CARD_DAILY_FORECAST_ENABLED = "daily_forecast_enabled"
+# Время рассылки "HH:MM" в МСК (дефолт "10:00").
+AGENT_CARD_DAILY_FORECAST_TIME = "daily_forecast_time"
+# Дата последней успешной отправки "YYYY-MM-DD" (МСК) — идемпотентность (переживает рестарт).
+AGENT_CARD_DAILY_FORECAST_LAST_SENT = "daily_forecast_last_sent"
+
 # Ключ в ``agent_card``: Telegram ``file_id`` уже загруженного колеса натальной карты.
 # Кэш: первый ``/natal`` грузит PNG-байты, Telegram возвращает ``file_id`` — сохраняем и
 # переиспользуем при следующих ``/natal`` (мгновенно, без перерисовки). Инвалидируется

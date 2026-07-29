@@ -282,6 +282,44 @@ RAG is off by default (`MANDALA_RAG_BACKEND=none`). Local dev path and prod requ
 in-memory Qdrant → retrieval feeds prompt, deterministic embedder, no network). Prod needs a
 real Qdrant + embedding creds — escalate infra, don't self-provision.
 
+## Утренняя рассылка: proactive daily motivator (scheduler, free, MSK)
+
+The bot proactively sends a short **slogan-motivator** (1–2 lines, «девиз дня», emoji ok — NO
+planet breakdown) every morning. **Default ON at 10:00 MSK** for everyone; the user changes the
+time or turns it off via `/morning`. **Free — never charges the wallet/quota** (a gift, like the
+instant renders); promo/balance untouched. **No migration** — all state lives in `agent_card`.
+
+- **Fixed MSK for all** (`Europe/Moscow`), NOT birthplace tz. Settings keys in `agent_card`
+  (`verticals/client_knowledge.py`): `daily_forecast_enabled` (**missing = True**),
+  `daily_forecast_time` (`"HH:MM"`, default `"10:00"`), `daily_forecast_last_sent`
+  (`"YYYY-MM-DD"` MSK — idempotency, survives restart).
+- **Pure decision + content**: `services/daily_forecast.py`. `should_send_daily_forecast(agent_card,
+  now)` is a pure function (inject `now` — `now_msk()` default) covering enabled / not-sent-today /
+  time-reached / catch-up window (`CATCHUP_WINDOW_MINUTES=180`, so after downtime it won't fire at
+  3am). `build_daily_slogan(...)` calls the vertical LLM with a tiny standalone prompt (small
+  `max_tokens`), **never** `QuotaService`; degrades to a general slogan when no chart/transits, and
+  returns `None` on LLM failure (then we don't send / don't mark sent). Transits reuse the natal
+  school (`calculate_current_transits`), positions kept as model «mood», not shown to the user.
+- **Scheduler = background asyncio task in the HTTP lifespan** (`http/app.py` →
+  `adapters/telegram/daily_forecast_scheduler.py`): `start/stop_daily_forecast_scheduler`. Loop wakes
+  ~60s, computes MSK `now`, offloads the sync tick to a worker thread (`anyio.to_thread.run_sync` —
+  don't block the loop). `run_daily_forecast_tick` iterates every vertical with a bot token
+  (`load_bot_token_map`), reads recipients (`repositories/daily_forecast.py` — join
+  `client_profiles`+`channel_links`, only rows with `birth_date`), sends to `external_user_id`
+  (= chat_id in a private chat) with the vertical token via `deliver_outbound_messages`, then marks
+  `last_sent` in its own txn. Per-user try/except; failure doesn't mark sent (retries within window).
+  Global kill-switch `MANDALA_DAILY_FORECAST_ENABLED` (default on) — off = task not started.
+- **`/morning` settings (deterministic, no LLM)**: `services/daily_forecast_settings.py`, routed in
+  `domain/handler.py` **before** intake (`is_daily_forecast_action`) so it works in any profile
+  state. Shows current state + toggle + time presets (07:00–12:00); also `/morning on|off` and
+  `/morning HH:MM`; callbacks `mdl:morning`/`:on`/`:off`/`:set:HH:MM`. In the bot menu
+  (`bot_commands.py`). The delivered morning message carries «📊 Подробнее» (`mdl:fc_today`) +
+  «⚙️ Настроить» (`mdl:morning`).
+- **Tests (offline, deterministic)**: `tests/test_daily_forecast.py` (should-send branches, settings
+  parse, `/morning` handler, content builder + degrade/fail), `tests/test_daily_forecast_scheduler.py`
+  (tick wiring: right chat_id+token, idempotency, quota-not-touched, LLM-fail-no-mark, start/stop),
+  `tests/test_keyboard_and_commands.py` (`mdl:morning` routes without touching the LLM).
+
 ## Deploy: PORT / EXPOSE / healthcheck contract
 
 Two run paths share one image (`Containerfile`); the app binds `${PORT}`

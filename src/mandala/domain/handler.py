@@ -13,6 +13,10 @@ from mandala.llm import ImageGenerationClient, TextCompletionClient
 from mandala.observability import op_format
 from mandala.rag.protocol import KbSearchPort
 from mandala.repositories import ProfileRepository, WalletRepository
+from mandala.services.daily_forecast_settings import (
+    handle_daily_forecast_action,
+    is_daily_forecast_action,
+)
 from mandala.services.image_reply import handle_inbound_image_generation
 from mandala.services.intent_router import post_intake_intent
 from mandala.services.nav_guarantee import ensure_nav
@@ -127,6 +131,24 @@ def handle_inbound(
             agent_card=profile.agent_card,
         )
         return ensure_nav(text_result, event.vertical_id)
+
+    # Настройка утренней рассылки (``/morning`` и кнопки ``mdl:morning*``) —
+    # детерминированно, без LLM; до анкеты, чтобы работало в любом состоянии профиля.
+    if is_daily_forecast_action(event.text):
+        logger.info(
+            "funnel inbound %s",
+            op_format(
+                vertical_id=event.vertical_id,
+                user_id=uid,
+                channel=event.channel,
+                stage="route",
+                intent="daily_forecast_settings",
+            ),
+        )
+        return ensure_nav(
+            handle_daily_forecast_action(conn, user_id=uid, text=event.text or ""),
+            event.vertical_id,
+        )
 
     # Бургер-команда навигации astrology «Прогноз» (/forecast) → подменю периодов,
     # обрабатываем ДО анкеты. «Натальная карта» (/natal) и «Карта судьбы» (/matrix)

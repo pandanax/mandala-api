@@ -20,6 +20,10 @@ from mandala.adapters.telegram.bot_api import TelegramBotApiClient
 from mandala.adapters.telegram.bot_commands import register_bot_commands_if_configured
 from mandala.adapters.telegram.bot_token import get_bot_token_for_vertical
 from mandala.adapters.telegram.callback_ack import answer_callback_query_if_present
+from mandala.adapters.telegram.daily_forecast_scheduler import (
+    start_daily_forecast_scheduler,
+    stop_daily_forecast_scheduler,
+)
 from mandala.adapters.telegram.inbound_map import telegram_update_to_inbound_event
 from mandala.adapters.telegram.webhook_delivery import process_telegram_webhook_update_async
 from mandala.http.engine_access import get_engine
@@ -54,13 +58,19 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     Здесь же включаем эмиссию метрик в YC Monitoring, если задан
     ``MANDALA_METRICS_ENABLED`` (см. :mod:`mandala.metrics`); при выключенных
     метриках это no-op и фоновый поток не создаётся.
+
+    Также стартуем планировщик утренней рассылки (проактивный девиз-мотиватор,
+    см. :mod:`mandala.adapters.telegram.daily_forecast_scheduler`) — фоновая asyncio-задача;
+    выключается env-рубильником ``MANDALA_DAILY_FORECAST_ENABLED``. При выходе — аккуратная отмена.
     """
     log_effective_models(logger)
     await register_bot_commands_if_configured()
     metrics.init_from_env()
+    daily_forecast_task = start_daily_forecast_scheduler(get_engine)
     try:
         yield
     finally:
+        await stop_daily_forecast_scheduler(daily_forecast_task)
         metrics.shutdown()
 
 

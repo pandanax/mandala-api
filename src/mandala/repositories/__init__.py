@@ -1,6 +1,10 @@
 """Репозитории доступа к данным (тикет 5)."""
 
 from mandala.repositories.artifacts import ArtifactRepository
+from mandala.repositories.daily_forecast import (
+    DailyForecastRecipient,
+    DailyForecastRepository,
+)
 from mandala.repositories.messages import MessageRepository
 from mandala.repositories.payments import PaymentTransactionsRepository
 from mandala.repositories.plans import PlanLimitDTO, PlanLimitsRepository, PlansRepository
@@ -13,6 +17,8 @@ from mandala.repositories.wallet import WalletRepository
 __all__ = [
     "ArtifactRepository",
     "ClientProfileDTO",
+    "DailyForecastRecipient",
+    "DailyForecastRepository",
     "MessageRepository",
     "PaymentTransactionsRepository",
     "PlanLimitDTO",
