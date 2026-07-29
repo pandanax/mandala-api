@@ -7,7 +7,12 @@
 # iam.cloud_meta); SA нужна роль logging.writer.
 #
 # Монтируется:
-#   - config.yml (только чтение) поверх дефолтного конфига образа;
+#   - config.yml как ШАБЛОН config.tmpl.yml (ro): entrypoint образа делает
+#     `eval echo` шаблона (подставляя $LOG_GROUP_ID из env) и сам пишет итоговый
+#     /etc/yandex/unified_agent/config.yml. Поэтому монтировать надо именно в
+#     config.tmpl.yml, а не в config.yml (иначе entrypoint не может записать
+#     итоговый конфиг: Read-only file system). Шаблон обязан быть eval-safe —
+#     без backticks и без $-переменных, кроме $LOG_GROUP_ID (см. config.yml).
 #   - /var/log/mandala (ro) — исходный файл логов;
 #   - /var/lib/yandex/unified_agent (rw) — буфер на диске + состояние file_input.
 # --uts=host — как в примерах YC. Сеть host НЕ обязательна: metadata service и
@@ -30,7 +35,7 @@ ExecStartPre=-/usr/bin/docker rm -f mandala-unified-agent
 ExecStart=/usr/bin/docker run --rm --name mandala-unified-agent \
   --uts=host \
   --env-file /etc/mandala/unified-agent.env \
-  -v /etc/mandala/unified-agent/config.yml:/etc/yandex/unified_agent/config.yml:ro \
+  -v /etc/mandala/unified-agent/config.yml:/etc/yandex/unified_agent/config.tmpl.yml:ro \
   -v /var/log/mandala:/var/log/mandala:ro \
   -v /var/lib/yandex/unified_agent:/var/lib/yandex/unified_agent \
   cr.yandex/yc/unified-agent

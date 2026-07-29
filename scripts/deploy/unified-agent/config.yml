@@ -1,21 +1,30 @@
 # Unified Agent — доставка логов приложения Mandala с ВМ в YC Logging.
 #
-# Полный собственный config.yml (переопределяет дефолтный образа): читает
-# plain-text stdout контейнера mandala-http из файла /var/log/mandala/app.log и
-# пушит каждую строку записью в log-группу YC Logging (output plugin `yc_logs`).
+# ВНИМАНИЕ — этот файл монтируется в контейнер как ШАБЛОН
+# /etc/yandex/unified_agent/config.tmpl.yml, и entrypoint образа прогоняет его
+# содержимое через оболочку (eval echo) и сам пишет итоговый config.yml,
+# подставляя переменные окружения. Поэтому файл ОБЯЗАН быть eval-safe:
+#   * никаких backtick-кавычек и никаких shell-подстановок вида скобка-доллар —
+#     оболочка исполнит их как команды и старт агента засорится ошибками;
+#   * единственная разрешённая переменная окружения — LOG_GROUP_ID (её подставляем
+#     ниже в log_group_id); других знаков доллара в файле быть не должно;
+#   * двойные кавычки вокруг скалярных значений оболочка снимет — это ок,
+#     оставшиеся значения (id группы, localhost, mandala-app) валидны как
+#     unquoted-скаляры YAML.
+# Правило: в комментариях этого файла — только буквы, без спецсимволов оболочки.
 #
-# Как строки попадают в файл: systemd-юнит mandala-logship.service гоняет
-#   `docker logs -f --tail 0 mandala-http >> /var/log/mandala/app.log`
-# (см. mandala-logship.service). Docker для дефолтного json-file драйвера отдаёт в
-# `docker logs` уже РАСПАКОВАННЫЙ текст — поэтому в файле лежат сырые `funnel …`
-# строки без JSON-обёртки, и в YC Logging они читаются как есть (тело записи =
-# строка лога). Парсить JSON здесь НЕ нужно.
+# Что делает конфиг: читает plain-text stdout контейнера mandala-http из файла
+# /var/log/mandala/app.log (systemd-юнит mandala-logship.service гоняет
+# docker logs -f --tail 0 mandala-http и дописывает строки в этот файл) и пушит
+# каждую строку записью в log-группу YC Logging (output plugin yc_logs). Docker
+# для json-file драйвера отдаёт в docker logs уже РАСПАКОВАННЫЙ текст, поэтому в
+# файле лежат сырые funnel-строки без JSON-обёртки, и в YC Logging они читаются
+# как есть (тело записи = строка лога). Парсить JSON здесь НЕ нужно.
 #
 # Аутентификация — сервисный аккаунт ВМ через metadata service (iam.cloud_meta),
-# тот же путь, что у метрик (src/mandala/metrics.py). SA нужна роль `logging.writer`.
-# LOG_GROUP_ID подставляется из окружения агента (см. run-скрипт/юнит и docs/logging.md).
+# тот же путь, что у метрик (src/mandala/metrics.py). SA нужна роль logging.writer.
+# LOG_GROUP_ID подставляется из окружения агента (см. юнит и docs/logging.md).
 #
-# Значения из окружения ($VAR) Unified Agent подставляет при старте.
 # Док-раздел: outputs.md#yc_logs_output, inputs.md#file_input.
 
 # Локальный статус-эндпоинт агента (по умолчанию только localhost) — для health/диагностики.
@@ -41,8 +50,7 @@ channels:
       output:
         plugin: yc_logs
         config:
-          # Целевая log-группа. ID = `terraform output logging_group_id`
-          # (ресурс yandex_logging_group.mandala в terraform/logging.tf).
+          # Целевая log-группа. ID подставляется из env LOG_GROUP_ID (см. install.sh).
           log_group_id: "$LOG_GROUP_ID"
           # IAM-токен из metadata service ВМ (сервисный аккаунт с ролью logging.writer).
           iam:

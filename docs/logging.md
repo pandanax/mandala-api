@@ -33,7 +33,7 @@ YC Logging log-группа  (terraform: yandex_logging_group.mandala)
 
 | Файл | Роль |
 |---|---|
-| `config.yml` | Конфиг Unified Agent: `file_input` (`/var/log/mandala/app.log`) → `yc_logs` (log-группа, IAM через metadata SA). |
+| `config.yml` | Конфиг Unified Agent: `file_input` (`/var/log/mandala/app.log`) → `yc_logs` (log-группа, IAM через metadata SA). **Монтируется в контейнер как шаблон `config.tmpl.yml`** — entrypoint образа прогоняет его через оболочку (`eval echo`, подставляя `$LOG_GROUP_ID`) и сам пишет итоговый `config.yml`; поэтому файл обязан быть eval-safe (без backticks и `$`, кроме `$LOG_GROUP_ID`). |
 | `mandala-logship.service` | systemd: `docker logs -f --tail 0 mandala-http >> /var/log/mandala/app.log`. |
 | `mandala-unified-agent.service` | systemd: запуск контейнера Unified Agent с монтированием конфига/файла/буфера. |
 | `logrotate-mandala` | Ротация `app.log` (`copytruncate`, чтобы не переоткрывать шиппер). |
@@ -79,19 +79,32 @@ terraform output logging_group_id                      # ← понадобит�
 > `terraform.tfvars` как `log_group_id` и `terraform apply` (иначе ссылка ведёт на список
 > групп каталога).
 
-### 2. Выдать сервисному аккаунту ВМ роль `logging.writer`
+### 2. Привязать к ВМ сервисный аккаунт с ролью записи логов
 
-К ВМ уже привязан сервисный аккаунт (используется для метрик). Добавь ему роль записи
-логов:
+`iam.cloud_meta` в конфиге агента берёт IAM-токен из metadata service ВМ — а он отдаёт
+токен, **только если к ВМ реально привязан сервисный аккаунт** (иначе
+`…/service-accounts/default/token` → HTTP 404, и агент не может авторизоваться, группа
+пустая). **Проверь, что SA действительно привязан**, а не просто существует в каталоге:
 
 ```bash
-SA_ID=$(yc compute instance get --name n8n-server --format json | jq -r .service_account_id)
-yc resource-manager folder add-access-binding <folder> \
-  --role logging.writer --subject serviceAccount:${SA_ID}
+yc compute instance get --name n8n-server --format json | jq -r .service_account_id
+# null → SA НЕ привязан, привяжи (онлайн, без остановки ВМ):
+yc compute instance update --name n8n-server --service-account-id <SA_ID>
 ```
 
-Если SA к ВМ не привязан — привязать (как для метрик, см. monitoring.md §«Включить
-эмиссию метрик»).
+Сервисному аккаунту нужна роль записи логов (`logging.writer`; `editor` её включает):
+
+```bash
+yc resource-manager folder add-access-binding <folder> \
+  --role logging.writer --subject serviceAccount:<SA_ID>
+```
+
+> Прод-факт (июль 2026): к ВМ `n8n-server` **не был привязан** SA вообще (metadata →
+> 404), поэтому доставка не работала. Привязан существующий каталожный SA `n8n-bot`
+> (роль `editor` уже покрывает запись логов) командой `instance update` — онлайн, без
+> перезапуска ВМ. Проверь `curl -s -H 'Metadata-Flavor: Google'
+> http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token` на
+> ВМ: должен вернуть `access_token`, а не `Not Found`.
 
 ### 3. Установить доставку на ВМ
 
@@ -134,6 +147,11 @@ docker logs mandala-unified-agent --tail 50
 
 Типовые причины пустой группы:
 
+- **SA не привязан к ВМ** (metadata `…/service-accounts/default/token` → HTTP 404) → агент
+  не получает IAM-токен. Проверка/фикс — §2 выше (`instance get`/`instance update`).
+- **Агент падает на старте с `Read-only file system` про `config.yml`** → конфиг смонтирован
+  не в `config.tmpl.yml`, а прямо в `config.yml` (entrypoint образа не может записать
+  итоговый конфиг). См. `mandala-unified-agent.service` (монтирование в `config.tmpl.yml`).
 - **Нет роли `logging.writer`** у SA ВМ → в логах агента ошибки `PermissionDenied`.
 - **Неверный `LOG_GROUP_ID`** в `/etc/mandala/unified-agent.env` → `NotFound`.
 - **`mandala-logship` не запущен / контейнер `mandala-http` отсутствует** →
