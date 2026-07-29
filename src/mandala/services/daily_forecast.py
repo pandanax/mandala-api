@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
@@ -45,6 +46,10 @@ CATCHUP_WINDOW_MINUTES = 180
 
 # Малый потолок токенов для девиза — это одна-две строки, не разбор.
 DAILY_SLOGAN_MAX_TOKENS = 220
+
+# Минимальная длина «правдоподобного» девиза. Ниже — это обрывок вроде «Се» (усечённое
+# «Сегодня…»), который НЕЛЬЗЯ слать пользователю (реальный баг рассылки).
+MIN_SLOGAN_CHARS = 12
 
 
 def now_msk() -> datetime:
@@ -133,7 +138,9 @@ _SLOGAN_SYSTEM_PROMPT = (
     "на 1–2 строки. Он должен звучать как девиз, заряжать и поднимать настроение. Пиши "
     "по-русски. Эмодзи уместны (1–2). НЕЛЬЗЯ: разбирать планеты, перечислять транзиты, писать "
     "абзацы, давать медицинские/финансовые советы, задавать вопросы. Только сам девиз, без "
-    "префиксов вроде «Девиз дня:». Максимум две короткие строки."
+    "префиксов вроде «Девиз дня:». Максимум две короткие строки. НЕ добавляй никаких "
+    "служебных блоков, маркеров, JSON или строк из дефисов («---»/«---mandala---») — верни "
+    "ТОЛЬКО текст девиза и ничего больше."
 )
 
 
@@ -171,39 +178,76 @@ def _slogan_user_prompt(agent_card: Mapping[str, Any], now: datetime) -> str:
     return "\n".join(lines)
 
 
+def is_plausible_slogan(text: str) -> bool:
+    """Похоже ли на настоящий девиз, а не на обрывок/пустышку.
+
+    Требуем ≥ :data:`MIN_SLOGAN_CHARS` символов И ≥2 слов (есть пробел). Это отсекает
+    обрывки вроде «Се» (усечённое «Сегодня…») и однословный мусор. Лучше не прислать
+    ничего, чем «Се» — так задумано (см. модульный docstring рассылки).
+    """
+    s = (text or "").strip()
+    if len(s) < MIN_SLOGAN_CHARS:
+        return False
+    return len(s.split()) >= 2
+
+
 def build_daily_slogan(
     agent_card: Mapping[str, Any],
     *,
     llm_client: TextCompletionClient,
     now: datetime,
 ) -> str | None:
-    """Сгенерировать короткий девиз дня (LLM). ``None`` при сбое LLM — тогда НЕ шлём.
+    """Сгенерировать короткий девиз дня (LLM). ``None`` при сбое/мусоре — тогда НЕ шлём.
 
     Квоту НЕ дёргает: рассылка бесплатна. Деградация встроена в промпт (нет карты →
-    общий девиз). Любые служебные хвосты (``---mandala---``/nav) на всякий случай срезаем.
+    общий девиз). Любые служебные хвосты (``---mandala---``/nav) срезаем, а результат
+    **валидируем** (:func:`is_plausible_slogan`): при неправдоподобном выводе делаем
+    **один ретрай** генерации, и если снова плохо — возвращаем ``None`` (не шлём этому
+    юзеру в этот тик; ``last_sent`` не ставится). Так обрывок «Се» никогда не уйдёт.
     """
     chat = [
         ChatMessage(role="system", content=_SLOGAN_SYSTEM_PROMPT),
         ChatMessage(role="user", content=_slogan_user_prompt(agent_card, now)),
     ]
-    try:
-        reply = llm_client.complete(chat, max_tokens=DAILY_SLOGAN_MAX_TOKENS)
-    except Exception:
-        logger.warning("daily slogan LLM failed — skipping this user this tick", exc_info=True)
-        return None
-    text = _strip_service_suffixes(reply).strip()
-    if not text:
-        return None
-    return text
+    for attempt in (1, 2):  # 1 генерация + 1 ретрай при неправдоподобном выводе
+        try:
+            reply = llm_client.complete(chat, max_tokens=DAILY_SLOGAN_MAX_TOKENS)
+        except Exception:
+            logger.warning("daily slogan LLM failed — skipping this user this tick", exc_info=True)
+            return None
+        text = _strip_service_suffixes(reply).strip()
+        if is_plausible_slogan(text):
+            return text
+        logger.warning(
+            "daily slogan implausible (attempt %d/2), not sending garbage: %r",
+            attempt,
+            text[:60],
+        )
+    return None
+
+
+# Служебный маркер (agent-card ``---mandala---`` или nav ``---mandala-nav---``) в любом
+# оформлении слабой модели: 2+ дефиса (опц. markdown-эмфазис) перед ядром ``mandala``.
+_SERVICE_MARKER_RE = re.compile(r"[*_`~]{0,3}-{2,}\s*mandala")
 
 
 def _strip_service_suffixes(reply: str) -> str:
-    """Срезать возможные служебные блоки (nav / agent-card), если модель их добавила."""
+    """Срезать возможные служебные блоки (nav / agent-card), если модель их добавила.
+
+    Штатные сплиттеры срезают корректно оформленный блок; но слабая модель может оставить
+    сырой служебный блок, который они не трогают (напр. agent-card с НЕразрешённым ключом →
+    patch пустой, блок не отделяется, и «---mandala---{…}» утёк бы пользователю). Финальный
+    предохранитель режет всё от первого служебного маркера. Валидность результата проверяет
+    :func:`is_plausible_slogan` в :func:`build_daily_slogan`.
+    """
     from mandala.services.nav_protocol import split_llm_nav_suffix
     from mandala.verticals.client_knowledge import split_llm_agent_card_suffix
 
     head, _ = split_llm_nav_suffix(reply)
     head, _ = split_llm_agent_card_suffix(head)
+    m = _SERVICE_MARKER_RE.search(head)
+    if m is not None:
+        head = head[: m.start()]
     return head
 
 

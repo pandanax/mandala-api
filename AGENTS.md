@@ -313,6 +313,16 @@ instant renders); promo/balance untouched. **No migration** — all state lives 
   `max_tokens`), **never** `QuotaService`; degrades to a general slogan when no chart/transits, and
   returns `None` on LLM failure (then we don't send / don't mark sent). Transits reuse the natal
   school (`calculate_current_transits`), positions kept as model «mood», not shown to the user.
+- **Output is validated — a truncated/empty slogan NEVER ships** (prod bug: bot sent «Се», a cut
+  «Сегодня…»). Root: the weak model (`deepseek-v4-flash`) sometimes appends stray service markers
+  (`---mandala---`/`---mandala-nav---`) though the standalone slogan prompt never asks for them; when
+  a marker lands early, `split_llm_nav_suffix` takes the head-before-marker → a fragment reaches the
+  user (and an agent-card block with a non-allowed key isn't stripped at all → raw block leaks).
+  Fix: `_SLOGAN_SYSTEM_PROMPT` forbids any markers/JSON/`---`; `_strip_service_suffixes` has a final
+  `_SERVICE_MARKER_RE` backstop that cuts from the first `-{2,}\s*mandala` marker (catches the leak);
+  and `build_daily_slogan` runs `is_plausible_slogan` (≥`MIN_SLOGAN_CHARS`=12 chars AND ≥2 words) —
+  on failure it does **one** retry, else returns `None` (skip this tick, `last_sent` unset). Better
+  no message than «Се». Regression: `test_build_slogan_never_sends_garbage` in `tests/test_daily_forecast.py`.
 - **Scheduler = background asyncio task in the HTTP lifespan** (`http/app.py` →
   `adapters/telegram/daily_forecast_scheduler.py`): `start/stop_daily_forecast_scheduler`. Loop wakes
   ~60s, computes MSK `now`, offloads the sync tick to a worker thread (`anyio.to_thread.run_sync` —

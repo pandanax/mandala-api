@@ -118,6 +118,19 @@ class _FailLLM:
         raise RuntimeError("LLM down")
 
 
+class _SeqLLM:
+    """Отдаёт заранее заданную последовательность ответов (для проверки ретрая)."""
+
+    def __init__(self, replies: list[str]) -> None:
+        self.replies = replies
+        self.calls = 0
+
+    def complete(self, *a: Any, **kw: Any) -> str:
+        reply = self.replies[min(self.calls, len(self.replies) - 1)]
+        self.calls += 1
+        return reply
+
+
 def test_build_slogan_general_when_no_birth_date() -> None:
     llm = _StubLLM()
     out = df.build_daily_slogan({}, llm_client=llm, now=_msk(2026, 7, 29, 10))
@@ -141,6 +154,50 @@ def test_build_slogan_strips_service_suffixes() -> None:
     reply = 'Лови волну удачи! 🌊\n---mandala-nav---\n{"buttons":[]}'
     out = df.build_daily_slogan({}, llm_client=_StubLLM(reply=reply), now=_msk(2026, 7, 29, 10))
     assert out == "Лови волну удачи! 🌊"
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        # Прямое воспроизведение прод-бага «Се»: слабая модель приклеила служебный маркер
+        # сразу после обрывка «Се», split_llm_nav_suffix взял head-до-маркера.
+        'Се---mandala-nav---\n{"buttons":[{"label":"x","q":"y"}]}',
+        'Се\n---mandala---\n{"natal_chart_text":"..."}',
+        "Се",  # чистый обрывок без маркера
+        "🌟",  # односимвольная пустышка
+        "Вперёд",  # одно слово — не девиз
+    ],
+)
+def test_build_slogan_never_sends_garbage(reply: str) -> None:
+    """Регресс «Се»: неправдоподобный вывод (обрывок/пустышка) → ретрай, затем None."""
+    llm = _SeqLLM([reply, reply])
+    out = df.build_daily_slogan({}, llm_client=llm, now=_msk(2026, 7, 29, 10))
+    assert out is None
+    assert llm.calls == 2  # был ровно один ретрай
+
+
+def test_build_slogan_retry_recovers_valid_after_garbage() -> None:
+    """Первый ответ — обрывок «Се», ретрай отдаёт нормальный девиз → шлём его."""
+    llm = _SeqLLM(['Се---mandala-nav---\n{"buttons":[]}', "Сегодня твой день, сияй ярко! 🌟"])
+    out = df.build_daily_slogan({}, llm_client=llm, now=_msk(2026, 7, 29, 10))
+    assert out == "Сегодня твой день, сияй ярко! 🌟"
+    assert llm.calls == 2
+
+
+def test_build_slogan_strips_raw_agent_card_without_allowed_key() -> None:
+    """agent-card с неразрешённым ключом штатный сплиттер не режет — предохранитель режет."""
+    reply = 'Сегодня твой день, лови удачу! ✨\n---mandala---\n{"foo":"bar"}'
+    out = df.build_daily_slogan({}, llm_client=_StubLLM(reply=reply), now=_msk(2026, 7, 29, 10))
+    assert out == "Сегодня твой день, лови удачу! ✨"
+    assert "mandala" not in (out or "")
+
+
+def test_is_plausible_slogan() -> None:
+    assert df.is_plausible_slogan("Сегодня — твой день! 🌟")
+    assert not df.is_plausible_slogan("Се")
+    assert not df.is_plausible_slogan("Вперёд")  # одно слово
+    assert not df.is_plausible_slogan("   ")
+    assert not df.is_plausible_slogan("🌟")
 
 
 def test_build_slogan_personalized_uses_sun_sign(monkeypatch: pytest.MonkeyPatch) -> None:
