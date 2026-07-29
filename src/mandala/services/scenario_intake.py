@@ -679,7 +679,6 @@ _COMMANDS_HELP = (
     "Кнопки под ответами — это навигация: углубиться в тему или вернуться назад."
 )
 
-_HELP_PHOTO_URL = "https://upload.wikimedia.org/wikipedia/commons/d/d1/Zodiac_woodcut.png"
 _ASTROLOGY_HELP_TEXT = (
     "🌟 **Mandala** — личный астрологический ассистент.\n\n"
     "Что я умею — **4 возможности**:\n"
@@ -713,19 +712,13 @@ def _help_nav_buttons() -> list[list[dict[str, str]]]:
     ]
 
 
-_HELP_PHOTO_CAPTION = "🌟 **Mandala** — личный астрологический ассистент"
-
-
 def _astrology_help_message() -> list[OutboundMessage]:
-    """Ответ на ``/help`` для astrology: картинка + описание меню и команд + инлайн-навигация.
+    """Ответ на ``/help`` для astrology: одно текстовое сообщение с описанием меню и команд
+    плюс инлайн-навигация. Без картинки — хелп это просто текст.
 
-    Текст хелпа длиннее лимита подписи Telegram (1024 символа), поэтому фото уходит
-    отдельным сообщением с короткой подписью, а полный текст — обычным ``sendMessage``
-    с навигацией на нём (терминальное сообщение). Иначе ``sendPhoto`` падает с
-    ``MEDIA_CAPTION_TOO_LONG`` и пользователь не получает ничего.
+    Текст (~2.1k) укладывается в лимит обычного ``sendMessage`` (4096 символов).
     """
     return [
-        OutboundMessage(text=_HELP_PHOTO_CAPTION, photo=_HELP_PHOTO_URL),
         OutboundMessage(text=_ASTROLOGY_HELP_TEXT, buttons=_help_nav_buttons()),
     ]
 

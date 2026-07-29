@@ -1,4 +1,4 @@
-"""Подменю прогноза, инлайн-навигация, /help с картинкой, setMyCommands, сплиттер."""
+"""Подменю прогноза, инлайн-навигация, /help (просто текст), setMyCommands, сплиттер."""
 
 from __future__ import annotations
 
@@ -159,23 +159,14 @@ def test_forecast_menu_returns_four_period_inline_buttons() -> None:
     assert msg.reply_keyboard is None
 
 
-def test_help_message_has_photo_bold_menu_and_inline_nav() -> None:
+def test_help_message_is_plain_text_bold_menu_and_inline_nav() -> None:
     out = _astrology_help_message()
-    # Текст хелпа длиннее лимита подписи Telegram (1024), поэтому фото и полный текст
-    # уходят ДВУМЯ сообщениями: сначала картинка с короткой подписью, затем полный текст
-    # с навигацией. Никогда: photo + text>1024 в одном сообщении (иначе sendPhoto падает).
-    assert len(out) == 2
-    photo_msg, text_msg = out
-    assert photo_msg.photo is not None and photo_msg.photo.startswith("https://")
-    # Подпись фото — короткая, в пределах лимита.
-    assert photo_msg.text is not None and len(photo_msg.text) <= 1024
-    # Полный текст — отдельным сообщением, без фото.
-    assert text_msg.photo is None
-    assert text_msg.text is not None
-    # Ни на одном сообщении нет photo вместе с подписью длиннее лимита.
-    for m in out:
-        assert not (m.photo and m.text is not None and len(m.text) > 1024)
-    msg = text_msg
+    # Хелп — это просто текст: ОДНО текстовое сообщение с навигацией, без картинки
+    # и без отдельного сообщения. Текст (~2.1k) укладывается в лимит sendMessage (4096).
+    assert len(out) == 1
+    msg = out[0]
+    # Никакого фото ни на одном сообщении.
+    assert msg.photo is None
     assert msg.text is not None
     text = msg.text
     # Жирный оформлен markdown-ом **…**, который delivery-слой превратит в <b> HTML.

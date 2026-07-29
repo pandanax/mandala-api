@@ -78,9 +78,11 @@ code: `src/mandala/astro/natal_chart.py`.
 - **Caption limit is 1024 — long photo captions autosplit (delivery safeguard).** Telegram
   caps a photo caption at **1024 chars** (`sendMessage` is 4096); an over-limit caption makes
   `sendPhoto` fail with `MEDIA_CAPTION_TOO_LONG` and the message is **dropped silently** (this
-  killed `/help`, whose ~2.1k text shipped as a photo caption). Two layers: `/help`
-  (`scenario_intake._astrology_help_message`) now returns **two** `OutboundMessage`s — photo +
-  short caption, then full text with nav buttons; and `outbound_send.deliver_outbound_messages`
+  once killed `/help` when its ~2.1k text shipped as a photo caption). `/help` no longer uses a
+  photo at all — `scenario_intake._astrology_help_message` returns **one** plain-text
+  `OutboundMessage` with nav buttons (the ~2.1k text fits `sendMessage`'s 4096 limit). The
+  autosplit backstop below stays as a general safeguard for any other photo+long-text message.
+  `outbound_send.deliver_outbound_messages`
   is a general backstop — when a message has both `photo` and `text` with `len(text) > 1024`
   (`TELEGRAM_CAPTION_LIMIT`, strictly `>`), it sends the photo with a word-boundary-truncated
   caption (`_truncate_caption`), then the full text as a separate `sendMessage`, with buttons on
