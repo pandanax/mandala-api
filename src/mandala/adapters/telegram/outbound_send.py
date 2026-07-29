@@ -16,6 +16,10 @@ from mandala.observability import op_format
 
 logger = logging.getLogger(__name__)
 
+# Лимит подписи (caption) к фото в Telegram — 1024 символа (у sendMessage лимит 4096).
+# Длинная подпись роняет sendPhoto (MEDIA_CAPTION_TOO_LONG) и сообщение молча теряется.
+TELEGRAM_CAPTION_LIMIT = 1024
+
 
 def _telegram_entity_parse_failed(err: TelegramApiError) -> bool:
     d = err.description.lower()
@@ -119,6 +123,21 @@ def _send_photo_caption_html_or_plain(
         raise
 
 
+def _truncate_caption(text: str, limit: int = TELEGRAM_CAPTION_LIMIT) -> str:
+    """Обрезать подпись до ``limit`` символов по границе слова, добавив «…».
+
+    Консервативно режем по символам Python (Telegram считает в UTF-16 code units, но
+    символьная граница всегда ≤ UTF-16 длины, так что запас в нашу пользу).
+    """
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1]
+    sp = cut.rfind(" ")
+    if sp > limit // 2:
+        cut = cut[:sp]
+    return cut.rstrip() + "…"
+
+
 def _buttons_to_reply_markup(buttons: list[list[dict[str, str]]]) -> dict[str, Any]:
     rows: list[list[dict[str, str]]] = []
     for row in buttons:
@@ -197,19 +216,47 @@ def deliver_outbound_messages(
             sticky_cleared = True
 
         if msg.photo_bytes or msg.photo:
+            # Предохранитель: если подпись длиннее лимита Telegram (1024), фото уйдёт с
+            # ОБРЕЗАННОЙ подписью, а полный текст — отдельным sendMessage; кнопки вешаем на
+            # последнее (текстовое) сообщение, чтобы навигация не потерялась. Иначе sendPhoto
+            # падает молча (MEDIA_CAPTION_TOO_LONG). Короткие подписи (напр. колесо /natal)
+            # не затрагиваются — порог строго > 1024.
+            caption = msg.text
+            overflow_text: str | None = None
+            photo_markup = markup
+            if caption is not None and len(caption) > TELEGRAM_CAPTION_LIMIT:
+                overflow_text = caption
+                caption = _truncate_caption(caption)
+                photo_markup = None  # кнопки уйдут на полный текст ниже
+                logger.info(
+                    "telegram caption over limit (%d>%d), splitting photo+text chat_id=%s",
+                    len(overflow_text),
+                    TELEGRAM_CAPTION_LIMIT,
+                    chat_id,
+                )
             result = _send_photo_caption_html_or_plain(
                 api,
                 chat_id=chat_id,
                 photo=msg.photo,
                 photo_bytes=msg.photo_bytes,
                 filename=msg.photo_filename,
-                caption=msg.text,
-                reply_markup=markup,
+                caption=caption,
+                reply_markup=photo_markup,
             )
             if msg.photo_bytes is not None and msg.photo_cache_key:
                 fid = _largest_photo_file_id(result)
                 if fid:
                     uploaded_file_ids[msg.photo_cache_key] = fid
+            if overflow_text is not None:
+                parts = split_text_for_telegram(overflow_text)
+                for i, part in enumerate(parts):
+                    part_markup = markup if i == len(parts) - 1 else None
+                    _send_message_html_or_plain(
+                        api,
+                        chat_id=chat_id,
+                        text=part,
+                        reply_markup=part_markup,
+                    )
         elif msg.text is not None:
             parts = split_text_for_telegram(msg.text)
             for i, part in enumerate(parts):

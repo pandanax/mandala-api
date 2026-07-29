@@ -75,6 +75,17 @@ code: `src/mandala/astro/natal_chart.py`.
   aarch64 wheel and the slim builder has no gcc.
 - **Wheel tests:** `tests/test_natal_wheel_image.py` (PNG signature+size = colored, `var()`
   resolution, no-geocode-with-coords, multipart send, file_id cache reuse, web `exclude` degrade).
+- **Caption limit is 1024 — long photo captions autosplit (delivery safeguard).** Telegram
+  caps a photo caption at **1024 chars** (`sendMessage` is 4096); an over-limit caption makes
+  `sendPhoto` fail with `MEDIA_CAPTION_TOO_LONG` and the message is **dropped silently** (this
+  killed `/help`, whose ~2.1k text shipped as a photo caption). Two layers: `/help`
+  (`scenario_intake._astrology_help_message`) now returns **two** `OutboundMessage`s — photo +
+  short caption, then full text with nav buttons; and `outbound_send.deliver_outbound_messages`
+  is a general backstop — when a message has both `photo` and `text` with `len(text) > 1024`
+  (`TELEGRAM_CAPTION_LIMIT`, strictly `>`), it sends the photo with a word-boundary-truncated
+  caption (`_truncate_caption`), then the full text as a separate `sendMessage`, with buttons on
+  the **last** (text) message. Short captions (e.g. `/natal` wheel) are untouched. Tests:
+  `tests/test_outbound_caption_autosplit.py`; `/help` shape in `tests/test_keyboard_and_commands.py`.
 - **Regression:** `tests/test_evgenia_natal_regression.py` (two-school accuracy) +
   `tests/test_natal_tz_and_no_fabrication.py` (tz-not-UTC raises, local-time ascendant, western
   Placidus reference, no-fabrication) + `tests/test_natal_block_render.py` (all blocks present,
