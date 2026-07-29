@@ -46,6 +46,7 @@ bash scripts/docs-serve.sh build    # статическая сборка в ./s
 | [astrology/natal-chart.md](astrology/natal-chart.md) | Расчёт натальной карты; две школы, которые не смешиваются |
 | [astrology/numerology.md](astrology/numerology.md) | Числовые системы: Карта судьбы (Матрица) и пифагорейская нумерология; кликабельные термины; `/matrix`, `/numerology` |
 | [astrology/forecasting-transits.md](astrology/forecasting-transits.md) | Прогнозы и транзиты (уважают школу натала) |
+| [astrology/morning-forecast.md](astrology/morning-forecast.md) | Утренняя рассылка девиза-мотиватора: планировщик 10:00 МСК, `/morning`, бесплатно |
 | [astrology/compatibility.md](astrology/compatibility.md) | Совместимость / синастрия |
 | [astrology/navigator-ux.md](astrology/navigator-ux.md) | Бот-навигатор: короткие ответы, контекстные inline-кнопки «куда дальше», кликабельные термины, бургер-меню |
 | [astrology/sources.md](astrology/sources.md) | Источники и справочные материалы |
