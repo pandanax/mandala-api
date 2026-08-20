@@ -19,11 +19,13 @@ set -euo pipefail
 
 # --- настройки (можно переопределить через env) ---
 CONTAINER_NAME="${CONTAINER_NAME:-mandala-http}"
+POLLING_CONTAINER_NAME="${POLLING_CONTAINER_NAME:-mandala-telegram-polling}"
 ENV_FILE="${ENV_FILE:-/opt/mandala/env}"
 HOST_PORT="${HOST_PORT:-8000}"
 CONTAINER_PORT="${CONTAINER_PORT:-8000}"
 RESTART_POLICY="${RESTART_POLICY:-unless-stopped}"
 RUN_MIGRATIONS="${RUN_MIGRATIONS:-0}"   # 1 = выполнить alembic upgrade head перед стартом
+TELEGRAM_API_HOST_IP="${TELEGRAM_API_HOST_IP:-149.154.167.220}"
 
 # --- проверки ---
 if [[ ! -r "$ENV_FILE" ]]; then
@@ -83,8 +85,18 @@ docker run -d \
   --restart "$RESTART_POLICY" \
   --env-file "$ENV_FILE" \
   -e HOST=0.0.0.0 -e PORT="$CONTAINER_PORT" \
+  --add-host "api.telegram.org:${TELEGRAM_API_HOST_IP}" \
   -p "${HOST_PORT}:${CONTAINER_PORT}" \
   "$IMAGE" >/dev/null
+
+echo "[restart_app] restarting Telegram polling…"
+docker rm -f "$POLLING_CONTAINER_NAME" >/dev/null 2>&1 || true
+docker run -d \
+  --name "$POLLING_CONTAINER_NAME" \
+  --restart "$RESTART_POLICY" \
+  --env-file "$ENV_FILE" \
+  --add-host "api.telegram.org:${TELEGRAM_API_HOST_IP}" \
+  "$IMAGE" python -m mandala.adapters.telegram >/dev/null
 
 # --- ждём готовности и health-check ---
 echo "[restart_app] waiting for /health…"

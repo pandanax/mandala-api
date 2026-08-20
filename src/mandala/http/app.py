@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -42,6 +43,42 @@ def _telegram_update_is_billing(update: dict[str, Any]) -> bool:
     if isinstance(msg, dict) and isinstance(msg.get("successful_payment"), dict):
         return True
     return False
+
+
+async def _process_telegram_update_background(
+    update_data: dict[str, Any],
+    *,
+    vertical_id: str,
+) -> None:
+    """Обработать update после немедленного ACK webhook-а Telegram."""
+    try:
+        if _telegram_update_is_billing(update_data):
+            engine = get_engine()
+            bot_token = get_bot_token_for_vertical(vertical_id)
+            if not bot_token:
+                logger.error("No bot token for vertical_id=%s (Stars / оплата)", vertical_id)
+                return
+            token = bot_token
+
+            def _run_billing() -> bool:
+                with TelegramBotApiClient(token) as api:
+                    return process_telegram_billing_update(
+                        update_data,
+                        vertical_id=vertical_id,
+                        engine=engine,
+                        api=api,
+                    )
+
+            await to_thread.run_sync(_run_billing)
+            return
+
+        await process_telegram_webhook_update_async(update_data, vertical_id=vertical_id)
+    except Exception:
+        logger.exception(
+            "Telegram update background processing failed for vertical_id=%s update_id=%s",
+            vertical_id,
+            update_data.get("update_id"),
+        )
 
 
 @asynccontextmanager
@@ -149,28 +186,13 @@ def create_app() -> FastAPI:
             )
 
             if _telegram_update_is_billing(update_data):
-                engine = get_engine()
-                bot_token = get_bot_token_for_vertical(vertical_id)
-                if not bot_token:
-                    logger.error("No bot token for vertical_id=%s (Stars / оплата)", vertical_id)
-                    raise HTTPException(
-                        status_code=500, detail="Bot token not configured for this vertical"
+                asyncio.create_task(
+                    _process_telegram_update_background(
+                        update_data,
+                        vertical_id=vertical_id,
                     )
-                token = bot_token
-
-                # Синхронный биллинг-ход (БД + Telegram API) уводим в worker-поток,
-                # чтобы не блокировать event-loop; сама идемпотентная логика не меняется.
-                def _run_billing() -> bool:
-                    with TelegramBotApiClient(token) as api:
-                        return process_telegram_billing_update(
-                            update_data,
-                            vertical_id=vertical_id,
-                            engine=engine,
-                            api=api,
-                        )
-
-                if await to_thread.run_sync(_run_billing):
-                    return {"status": "ok"}
+                )
+                return {"status": "ok"}
 
             event = telegram_update_to_inbound_event(update_data, vertical_id=vertical_id)
             if event is None:
@@ -199,7 +221,12 @@ def create_app() -> FastAPI:
                     )
                 return {"status": "ignored"}
 
-            await process_telegram_webhook_update_async(update_data, vertical_id=vertical_id)
+            asyncio.create_task(
+                _process_telegram_update_background(
+                    update_data,
+                    vertical_id=vertical_id,
+                )
+            )
             return {"status": "ok"}
 
         except Exception as e:

@@ -106,6 +106,9 @@ retry rsync -az --delete -e 'ssh -o BatchMode=yes -o ConnectTimeout=12' \
   --exclude 'cache' --exclude '*.tar' --exclude '.DS_Store' --exclude '.gnhf' \
   "$REPO/" "$SSH_HOST:$REMOTE_SRC/" || { log "❌ rsync упал (прод не тронут)"; exit 1; }
 
+"${SSH[@]}" "sudo install -m 0755 -o root -g root ~/$REMOTE_SRC/scripts/deploy/restart_app.sh /opt/mandala/restart_app.sh" \
+  || { log "❌ не удалось обновить /opt/mandala/restart_app.sh"; exit 1; }
+
 # 2) нативная сборка на ВМ (ретраи)
 log "-------- docker build на ВМ (нативный amd64) --------"
 retry "${SSH[@]}" "cd ~/$REMOTE_SRC && sudo docker build -f Containerfile -t '$IMAGE' ." \
