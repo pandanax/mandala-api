@@ -208,11 +208,18 @@ legacy astrology-кодов; callback должен проверяться про
 
 ### Этап 4 — production rollout без риска для астролога
 
-1. Создать Telegram-бота и сохранить токен только в secret storage `/opt/mandala/env`.
+1. Telegram-бот уже создан, локальный токен находится у владельца в `FITBOT_TOKEN`. Не выполнять
+   `echo $FITBOT_TOKEN`, не вставлять значение в issue/PR/логи. Для приложения перед запуском
+   безопасно передать его под ожидаемым именем окружения
+   `TELEGRAM_BOT_TOKEN_NUTRITION` (например, экспортом из `FITBOT_TOKEN` в той же shell-сессии),
+   а в production сохранить только в secret storage `/opt/mandala/env`. Если переменная объявлена,
+   но не экспортирована, дочерний процесс приложения её не увидит; проверять только факт наличия,
+   не печатая значение.
 2. Сначала выкатить код и миграцию **без** `TELEGRAM_BOT_TOKEN_NUTRITION`; проверить astrology.
 3. Проиндексировать nutrition KB в существующую Qdrant collection с vertical filter; проверить
    counts/search, не используя `--recreate-collection`, чтобы не стереть astrology chunks.
-4. Добавить `LLM_MODEL_NUTRITION`, `TELEGRAM_BOT_TOKEN_NUTRITION` и
+4. Добавить `LLM_MODEL_NUTRITION`, канонический `TELEGRAM_BOT_TOKEN_NUTRITION` (источник —
+   локальный `FITBOT_TOKEN`) и
    `TELEGRAM_WEBHOOK_SECRET_NUTRITION`; legacy astrology env не переименовывать в том же релизе.
 5. Задать webhook нового токена на `/webhooks/telegram/nutrition` с его secret и всеми нужными
    update types (`message`, `callback_query`, billing updates).
