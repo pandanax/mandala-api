@@ -123,19 +123,28 @@ def test_handle_inbound_first_and_repeat(engine: Engine) -> None:
         text="Как дела?",
     )
 
+    def action(text_value: str) -> InboundEvent:
+        return ev_short.model_copy(update={"text": text_value})
+
     with engine.begin() as conn:
         out0 = handle_inbound(ev_short, conn, llm_client=stub)
     with engine.begin() as conn:
         out1 = handle_inbound(ev_topic, conn, llm_client=stub)
     with engine.begin() as conn:
+        handle_inbound(action("mdl:intake:ok"), conn, llm_client=stub)
+    with engine.begin() as conn:
         out2 = handle_inbound(ev_mood, conn, llm_client=stub)
+    with engine.begin() as conn:
+        handle_inbound(action("mdl:intake:ok"), conn, llm_client=stub)
+    with engine.begin() as conn:
+        handle_inbound(action("mdl:intake:save"), conn, llm_client=stub)
     with engine.begin() as conn:
         out3 = handle_inbound(ev_chat, conn, llm_client=stub)
 
     assert len(out0) == 1
     assert "тем" in (out0[0].text or "").lower() or "короче" in (out0[0].text or "").lower()
-    assert "настроение" in (out1[0].text or "").lower()
-    assert "анкета" in (out2[0].text or "").lower() or "сохран" in (out2[0].text or "").lower()
+    assert "верно" in (out1[0].text or "").lower()
+    assert "верно" in (out2[0].text or "").lower()
     assert len(out3) == 1
     assert "therapy" in (out3[0].text or "")
     assert "web" in (out3[0].text or "")

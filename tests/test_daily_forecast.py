@@ -212,6 +212,8 @@ def test_build_slogan_personalized_uses_sun_sign(monkeypatch: pytest.MonkeyPatch
     assert out == "Сегодня твой день! 🚀"
     user_msg = llm.calls[0]["messages"][1].content
     assert "Рыбы" in user_msg
+    assert "Стрелец — целься" in llm.calls[0]["messages"][0].content
+    assert "3–4" in llm.calls[0]["messages"][0].content
 
 
 def test_build_forecast_message_has_short_nav_buttons() -> None:
@@ -308,6 +310,20 @@ def test_morning_set_time_text(settings_store: dict[UUID, dict[str, Any]]) -> No
     uid = uuid4()
     _act(settings_store, uid, "/morning 8:5")
     assert settings_store[uid][AGENT_CARD_DAILY_FORECAST_TIME] == "08:05"
+
+
+def test_morning_custom_time_button_then_plain_text(
+    settings_store: dict[UUID, dict[str, Any]],
+) -> None:
+    uid = uuid4()
+    prompt = _act(settings_store, uid, "mdl:morning:custom")
+    assert "HH:MM" in (prompt.text or "")
+    assert dfs.is_daily_forecast_action("06:37", settings_store[uid])
+
+    msg = _act(settings_store, uid, "06:37")
+    assert settings_store[uid][AGENT_CARD_DAILY_FORECAST_TIME] == "06:37"
+    assert "06:37" in (msg.text or "")
+    assert not dfs.is_daily_forecast_action("привет", settings_store[uid])
 
 
 def test_morning_invalid_time_rejected(settings_store: dict[UUID, dict[str, Any]]) -> None:

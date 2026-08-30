@@ -35,6 +35,8 @@ _CB_PREFIX = "mdl:morning"
 _CB_ON = "mdl:morning:on"
 _CB_OFF = "mdl:morning:off"
 _CB_SET_PREFIX = "mdl:morning:set:"
+_CB_CUSTOM = "mdl:morning:custom"
+_AWAITING_CUSTOM_TIME = "daily_forecast_awaiting_custom_time"
 
 # Пресеты времени (МСК) кнопками.
 _TIME_PRESETS = ("07:00", "08:00", "09:00", "10:00", "11:00", "12:00")
@@ -50,7 +52,7 @@ def _cmd_head_and_arg(text: str) -> tuple[str, str]:
     return head.lower(), arg
 
 
-def is_daily_forecast_action(text: str | None) -> bool:
+def is_daily_forecast_action(text: str | None, agent_card: dict[str, Any] | None = None) -> bool:
     """True, если ``text`` — команда/кнопка настройки утренней рассылки."""
     if text is None:
         return False
@@ -58,6 +60,8 @@ def is_daily_forecast_action(text: str | None) -> bool:
     if not raw:
         return False
     if raw.startswith(_CB_PREFIX):
+        return True
+    if agent_card and agent_card.get(_AWAITING_CUSTOM_TIME) is True:
         return True
     head, _ = _cmd_head_and_arg(raw)
     return head == _MORNING_COMMAND
@@ -71,7 +75,7 @@ def _settings_message(*, enabled: bool, time_hhmm: str, note: str | None = None)
     """Собрать сообщение с текущим состоянием и кнопками (короткие лейблы)."""
     status = f"🔔 включена, {time_hhmm} МСК" if enabled else "🔕 отключена"
     lines = [
-        "☀️ **Утренний прогноз** — короткий девиз-мотиватор каждое утро.",
+        "☀️ **Утренний прогноз** — персональный разбор дня в 3–4 строках.",
         f"Сейчас: {status}.",
     ]
     if note:
@@ -87,6 +91,7 @@ def _settings_message(*, enabled: bool, time_hhmm: str, note: str | None = None)
         [toggle],
         preset_row1,
         preset_row2,
+        [_btn("✏️ Другое время", _CB_CUSTOM)],
         [_btn("⬅️ К темам", "mdl:topics")],
     ]
     return OutboundMessage(text="\n".join(lines), buttons=buttons)
@@ -110,15 +115,22 @@ def handle_daily_forecast_action(
     note: str | None = None
 
     # --- Разбор действия -------------------------------------------------------------
+    awaiting_custom = ac.get(_AWAITING_CUSTOM_TIME) is True
     if raw.startswith(_CB_SET_PREFIX):
         new_time = raw[len(_CB_SET_PREFIX) :].strip()
         note = _apply_time(profiles, user_id, ac, new_time)
+    elif raw == _CB_CUSTOM:
+        profiles.merge_agent_card(user_id, {_AWAITING_CUSTOM_TIME: True})
+        ac[_AWAITING_CUSTOM_TIME] = True
+        note = "✏️ Отправьте желаемое время одним сообщением в формате **HH:MM**, например 08:35."
     elif raw == _CB_ON:
         note = _apply_enabled(profiles, user_id, ac, True)
     elif raw == _CB_OFF:
         note = _apply_enabled(profiles, user_id, ac, False)
     elif raw.startswith(_CB_PREFIX):
         note = None  # просто показать настройку (mdl:morning)
+    elif awaiting_custom:
+        note = _apply_time(profiles, user_id, ac, raw)
     else:
         # Текстовая команда /morning [on|off|HH:MM]
         _, arg = _cmd_head_and_arg(raw)
@@ -159,8 +171,13 @@ def _apply_time(
     # Установка времени включает рассылку (иначе бессмысленно выбирать время).
     profiles.merge_agent_card(
         user_id,
-        {AGENT_CARD_DAILY_FORECAST_TIME: normalized, AGENT_CARD_DAILY_FORECAST_ENABLED: True},
+        {
+            AGENT_CARD_DAILY_FORECAST_TIME: normalized,
+            AGENT_CARD_DAILY_FORECAST_ENABLED: True,
+            _AWAITING_CUSTOM_TIME: False,
+        },
     )
     ac[AGENT_CARD_DAILY_FORECAST_TIME] = normalized
     ac[AGENT_CARD_DAILY_FORECAST_ENABLED] = True
+    ac[_AWAITING_CUSTOM_TIME] = False
     return f"✅ Время утреннего прогноза: {normalized} МСК."

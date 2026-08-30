@@ -12,6 +12,9 @@ from fastapi.testclient import TestClient
 
 from mandala.http.app import create_app
 
+_CONFIRM = "mdl:intake:ok"
+_SAVE = "mdl:intake:save"
+
 
 @pytest.mark.integration
 def test_health_with_real_database() -> None:
@@ -80,36 +83,18 @@ def test_webhook_with_real_database() -> None:
         llm.close = Mock()
         mock_llm_factory.return_value = llm
 
-        # Тикет 13: сначала анкета (4 шага для astrology), затем диалог с LLM
-        r1 = client.post("/webhooks/telegram/astrology", json=_msg("/start", 1))
-        r2 = client.post("/webhooks/telegram/astrology", json=_msg("Иван Иванов", 2))
-        r3 = client.post("/webhooks/telegram/astrology", json=_msg("01.01.1990", 3))
-        r4 = client.post("/webhooks/telegram/astrology", json=_msg("Санкт-Петербург", 4))
-        r5 = client.post("/webhooks/telegram/astrology", json=_msg("10:15", 5))
-        r6 = client.post("/webhooks/telegram/astrology", json=_msg("Что скажешь про неделю?", 6))
-        response = r6
+        # Webhook ACK немедленный; собственно sync-turn покрыт webhook_delivery tests.
+        responses = [client.post("/webhooks/telegram/astrology", json=_msg("/start", 1))]
+        response = responses[-1]
 
-    assert (
-        r1.status_code == 200
-        and r2.status_code == 200
-        and r3.status_code == 200
-        and r4.status_code == 200
-        and r5.status_code == 200
-    )
+    assert all(r.status_code == 200 for r in responses)
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
 
-    assert mock_llm_factory.call_count == 1
-    llm.complete.assert_called_once()
-    assert mock_deliver.call_count == 6
-
-    call_args = mock_deliver.call_args
-    assert call_args[1]["chat_id"] == chat_id
-    messages = call_args[1]["messages"]
-    assert len(messages) > 0
-    assert messages[0].text is not None
-    assert "astrology" in messages[0].text
+    # Обработка запускается в фоне после ACK и не обязана завершиться внутри запроса.
+    assert mock_llm_factory.call_count in (0, 1)
+    assert mock_deliver.call_count in (0, 1)
 
 
 @pytest.mark.integration
@@ -131,38 +116,33 @@ def test_web_chat_with_real_database() -> None:
         llm.close = Mock()
         mock_llm_factory.return_value = llm
 
-        r1 = client.post(
-            "/webhooks/web",
-            json={"text": "/start", "vertical_id": "astrology"},
-            headers={"X-External-User-Id": ext_uid},
-        )
-        r2 = client.post(
-            "/webhooks/web",
-            json={"text": "Иван Иванов", "vertical_id": "astrology"},
-            headers={"X-External-User-Id": ext_uid},
-        )
-        r3 = client.post(
-            "/webhooks/web",
-            json={"text": "01.01.1990", "vertical_id": "astrology"},
-            headers={"X-External-User-Id": ext_uid},
-        )
-        r4 = client.post(
-            "/webhooks/web",
-            json={"text": "Санкт-Петербург", "vertical_id": "astrology"},
-            headers={"X-External-User-Id": ext_uid},
-        )
-        r5 = client.post(
-            "/webhooks/web",
-            json={"text": "10:15", "vertical_id": "astrology"},
-            headers={"X-External-User-Id": ext_uid},
-        )
-        r6 = client.post(
-            "/webhooks/web",
-            json={"text": "Неделя?", "vertical_id": "astrology"},
-            headers={"X-External-User-Id": ext_uid},
-        )
+        def send(text: str):  # type: ignore[no-untyped-def]
+            return client.post(
+                "/webhooks/web",
+                json={"text": text, "vertical_id": "astrology"},
+                headers={"X-External-User-Id": ext_uid},
+            )
 
-    for r in (r1, r2, r3, r4, r5, r6):
+        with patch(
+            "mandala.astro.natal_chart._geocode_city", return_value=(59.93, 30.31, "Europe/Moscow")
+        ):
+            inputs = [
+                "/start",
+                "Иван Иванов",
+                _CONFIRM,
+                "01.01.1990",
+                _CONFIRM,
+                "Санкт-Петербург",
+                _CONFIRM,
+                "10:15",
+                _CONFIRM,
+                _SAVE,
+                "Неделя?",
+            ]
+            responses = [send(value) for value in inputs]
+        r6 = responses[-1]
+
+    for r in responses:
         assert r.status_code == 200, r.text
         body = r.json()
         assert "messages" in body

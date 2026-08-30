@@ -4,6 +4,16 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 
 - Add durable project-specific notes here as they are discovered through real work.
 
+## Default delivery workflow for requested changes
+
+When the user asks to change the product, completing the task normally means delivering the
+change to production, not stopping after a local edit. Unless the user explicitly asks for a
+local-only change or review: create a focused feature branch, implement and run the full project
+check, commit and push, open a GitHub pull request, merge it into `main` after checks pass, then
+deploy using the repository's authoritative production path (`bash scripts/deploy/deploy.sh`).
+Finish by verifying production health/E2E and the changed behavior where it can be tested safely.
+Do not bypass branch protection or merge failing checks; report any delivery blocker clearly.
+
 ## Astrology: two-school computation model
 
 Positions are computed in Python (Swiss Ephemeris via kerykeion) and injected into the LLM
@@ -297,9 +307,13 @@ real Qdrant + embedding creds — escalate infra, don't self-provision.
 
 ## Утренняя рассылка: proactive daily motivator (scheduler, free, MSK)
 
-The bot proactively sends a short **slogan-motivator** (1–2 lines, «девиз дня», emoji ok — NO
-planet breakdown) every morning. **Default ON at 10:00 MSK** for everyone; the user changes the
-time or turns it off via `/morning`. **Free — never charges the wallet/quota** (a gift, like the
+The bot proactively sends a personalized **mini-forecast** (3–4 short, concrete lines: the day's
+main theme, opportunity/tension, and one action; no zodiac-sign address or generic slogans) every
+morning. It uses the computed natal chart plus current transits in the same astrology school.
+**Default ON at 10:00 MSK** for everyone; the user changes the time or turns it off via `/morning`.
+Preset buttons are supplemented by «Другое время»: after tapping it, a bare `HH:MM` message is
+accepted and validated (the explicit `/morning HH:MM` form remains supported). **Free — never
+charges the wallet/quota** (a gift, like the
 instant renders); promo/balance untouched. **No migration** — all state lives in `agent_card`.
 
 - **Fixed MSK for all** (`Europe/Moscow`), NOT birthplace tz. Settings keys in `agent_card`
@@ -310,7 +324,7 @@ instant renders); promo/balance untouched. **No migration** — all state lives 
   now)` is a pure function (inject `now` — `now_msk()` default) covering enabled / not-sent-today /
   time-reached / catch-up window (`CATCHUP_WINDOW_MINUTES=180`, so after downtime it won't fire at
   3am). `build_daily_slogan(...)` calls the vertical LLM with a tiny standalone prompt (small
-  `max_tokens`), **never** `QuotaService`; degrades to a general slogan when no chart/transits, and
+  `max_tokens`), **never** `QuotaService`; degrades to a general mini-forecast when no chart/transits, and
   returns `None` on LLM failure (then we don't send / don't mark sent). Transits reuse the natal
   school (`calculate_current_transits`), positions kept as model «mood», not shown to the user.
 - **Output is validated — a truncated/empty slogan NEVER ships** (prod bug: bot sent «Се», a cut
