@@ -106,6 +106,7 @@ def test_telegram_webhook_does_not_serialize_slow_turns(monkeypatch: pytest.Monk
     )
     # Без секрета проверка X-Telegram-Bot-Api-Secret-Token не выполняется.
     monkeypatch.delenv("TELEGRAM_WEBHOOK_SECRET", raising=False)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN_ASTROLOGY", "123:test-token")
 
     app = create_app()
     payloads: list[tuple[dict[str, Any], dict[str, str]]] = []

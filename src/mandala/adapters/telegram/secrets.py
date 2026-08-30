@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import os
+
 
 def mask_bot_token(token: str) -> str:
     """Сократить токен бота до префикса + ``…`` (не логировать полный секрет)."""
@@ -19,3 +21,11 @@ def mask_bot_token(token: str) -> str:
     if len(token) <= 8:
         return "…"
     return f"{token[:4]}…{token[-2:]}"
+
+
+def get_webhook_secret_for_vertical(vertical_id: str) -> str | None:
+    """Resolve a per-vertical secret, falling back to the legacy shared variable."""
+    slug = vertical_id.strip().upper().replace("-", "_")
+    specific = os.getenv(f"TELEGRAM_WEBHOOK_SECRET_{slug}", "").strip()
+    legacy = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
+    return specific or legacy or None

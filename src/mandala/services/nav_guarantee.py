@@ -53,6 +53,13 @@ def _therapy_fallback_buttons() -> list[list[dict[str, str]]]:
     ]
 
 
+def _nutrition_fallback_buttons() -> list[list[dict[str, str]]]:
+    return [
+        [_btn("🥗 Следующий шаг", "mdl_nut:plan"), _btn("✅ Отметиться", "mdl_nut:checkin")],
+        [_btn("👤 Профиль", "/profile")],
+    ]
+
+
 def fallback_nav_buttons(vertical_id: str) -> list[list[dict[str, str]]] | None:
     """Инлайн-кнопки-фолбэк для вертикали; ``None`` для неизвестной вертикали."""
     v = vertical_id.strip()
@@ -60,6 +67,8 @@ def fallback_nav_buttons(vertical_id: str) -> list[list[dict[str, str]]] | None:
         return _astrology_fallback_buttons()
     if v == "therapy":
         return _therapy_fallback_buttons()
+    if v == "nutrition":
+        return _nutrition_fallback_buttons()
     return None
 
 

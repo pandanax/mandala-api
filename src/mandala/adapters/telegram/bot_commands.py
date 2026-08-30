@@ -8,11 +8,12 @@
 from __future__ import annotations
 
 import logging
-import os
 
 import httpx
 
+from mandala.adapters.telegram.bot_token import load_bot_token_map
 from mandala.adapters.telegram.secrets import mask_bot_token
+from mandala.verticals.registry import ASTROLOGY_COMMANDS, get_vertical_definition
 
 logger = logging.getLogger(__name__)
 
@@ -23,19 +24,7 @@ _DEFAULT_BASE = "https://api.telegram.org"
 # среди inline-кнопок под ответами), затем профиль/рестарт/help/промо/покупка сообщений. Основной
 # поток inline-кнопок под ответами — контекстная навигация модели «куда дальше», а НЕ
 # статические сервисные действия (см. docs/agent.md).
-BOT_COMMANDS: list[tuple[str, str]] = [
-    ("natal", "Натальная карта"),
-    ("matrix", "Матрица судьбы"),
-    ("numerology", "Нумерология"),
-    ("forecast", "Прогноз"),
-    ("morning", "Утренний прогноз"),
-    ("profile", "Мой профиль"),
-    ("start", "Начать заново"),
-    ("reset", "Полный сброс профиля"),
-    ("help", "Помощь"),
-    ("promo", "Промо-код"),
-    ("topup", "Купить сообщения"),
-]
+BOT_COMMANDS: list[tuple[str, str]] = list(ASTROLOGY_COMMANDS)
 
 
 async def register_bot_commands_if_configured(
@@ -47,33 +36,41 @@ async def register_bot_commands_if_configured(
     Возвращает ``True`` при успешном вызове ``setMyCommands``, иначе ``False``.
     Любые ошибки (сеть, ``ok: false``, отсутствие env) не пробрасываются — только лог.
     """
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    vertical_id = os.environ.get("TELEGRAM_VERTICAL_ID")
-    if not token or not vertical_id:
-        logger.info("setMyCommands пропущен: TELEGRAM_BOT_TOKEN / TELEGRAM_VERTICAL_ID не заданы")
+    token_map = load_bot_token_map()
+    if not token_map:
+        logger.info("setMyCommands пропущен: Telegram bot tokens не заданы")
         return False
-
-    commands = [{"command": cmd, "description": desc} for cmd, desc in BOT_COMMANDS]
-    url = f"{base_url.rstrip('/')}/bot{token.strip()}/setMyCommands"
-    masked = mask_bot_token(token)
-    try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0),
-        ) as client:
-            r = await client.post(url, json={"commands": commands})
-        data = r.json()
-        if not isinstance(data, dict) or not data.get("ok"):
-            desc = data.get("description") if isinstance(data, dict) else data
-            logger.warning("setMyCommands вернул ok=false token=%s: %s", masked, desc)
-            return False
-    except Exception as e:  # noqa: BLE001 — старт не должен падать из-за Telegram
-        logger.warning("setMyCommands не выполнен token=%s: %s", masked, e)
-        return False
-
-    logger.info(
-        "setMyCommands ok token=%s vertical_id=%s commands=%s",
-        masked,
-        vertical_id,
-        len(commands),
-    )
-    return True
+    all_ok = True
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0),
+    ) as client:
+        for vertical_id, token in token_map.items():
+            definition = get_vertical_definition(vertical_id)
+            if definition is None:
+                logger.warning("setMyCommands пропущен: unknown vertical_id=%s", vertical_id)
+                all_ok = False
+                continue
+            commands = [{"command": cmd, "description": desc} for cmd, desc in definition.commands]
+            masked = mask_bot_token(token)
+            try:
+                r = await client.post(
+                    f"{base_url.rstrip('/')}/bot{token.strip()}/setMyCommands",
+                    json={"commands": commands},
+                )
+                data = r.json()
+                if not isinstance(data, dict) or not data.get("ok"):
+                    desc = data.get("description") if isinstance(data, dict) else data
+                    logger.warning("setMyCommands вернул ok=false token=%s: %s", masked, desc)
+                    all_ok = False
+                    continue
+            except Exception as e:  # noqa: BLE001
+                logger.warning("setMyCommands не выполнен token=%s: %s", masked, e)
+                all_ok = False
+                continue
+            logger.info(
+                "setMyCommands ok token=%s vertical_id=%s commands=%s",
+                masked,
+                vertical_id,
+                len(commands),
+            )
+    return all_ok

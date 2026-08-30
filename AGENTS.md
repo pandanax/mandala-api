@@ -4,6 +4,17 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 
 - Add durable project-specific notes here as they are discovered through real work.
 
+## Nutrition vertical isolation
+
+The nutrition assistant uses `vertical_id="nutrition"` and is an adult-only general-wellness
+product. The typed capability boundary is `verticals/registry.py`: nutrition must never gain
+`astrology_tools`, `daily_forecast`, or `image_generation`. Cross-product commands/callbacks are
+rejected before intake/LLM in `domain/handler.py`. Nutrition safety triage runs before every LLM
+turn in `services/nutrition_safety.py`; `refer` responses never reach the model. Telegram webhook
+secrets resolve as `TELEGRAM_WEBHOOK_SECRET_<VERTICAL>` with legacy shared-secret fallback, and a
+webhook route is accepted only when registry and token map agree. Do not use Qdrant
+`--recreate-collection` when indexing nutrition alongside production astrology.
+
 ## Default delivery workflow for requested changes
 
 When the user asks to change the product, completing the task normally means delivering the

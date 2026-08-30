@@ -110,6 +110,17 @@ _THERAPY: dict[str, str] = {
     "mdl_th:anx": "Чувствую сильную тревогу — помоги структурировать, что происходит.",
 }
 
+_NUTRITION: dict[str, str] = {
+    "mdl_nut:plan": (
+        "Предложи один реалистичный следующий шаг и простой план питания на день без жёстких "
+        "ограничений."
+    ),
+    "mdl_nut:checkin": (
+        "Проведи короткий check-in: спроси, что получилось, что помешало и какой один шаг "
+        "выбрать дальше."
+    ),
+}
+
 # --- Покупка пакетов сообщений (пакетная монетизация) -----------------------------
 # callback_data кнопки «Купить сообщения» (открывает пикер пакетов). Общий для вертикалей.
 PACKS_MENU_CALLBACK = "mdl:packs"
@@ -156,7 +167,15 @@ def expand_inbound_quick_action(vertical_id: str, text: str | None) -> str | Non
     if not raw:
         return text
     v = vertical_id.strip()
-    table = _ASTROLOGY if v == "astrology" else _THERAPY if v == "therapy" else {}
+    table = (
+        _ASTROLOGY
+        if v == "astrology"
+        else _THERAPY
+        if v == "therapy"
+        else _NUTRITION
+        if v == "nutrition"
+        else {}
+    )
 
     # Прямой код кнопки (callback_data или известный mdl:* ключ)
     expanded = table.get(raw)

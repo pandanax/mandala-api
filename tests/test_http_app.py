@@ -315,5 +315,6 @@ def test_webhook_wrong_vertical(client: TestClient) -> None:
 
         response = client.post("/webhooks/telegram/therapy", json=telegram_update)
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "ok"
+    assert response.status_code == 404
+    assert mock_get_engine.called is False
+    assert mock_handle.called is False

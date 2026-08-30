@@ -21,6 +21,38 @@
       "validator": { "kind": "birth_time" }
     }
   ],
+  "nutrition": [
+    {
+      "field_key": "age",
+      "prompt": "Сколько вам полных лет? MVP предназначен только для взрослых 18+.",
+      "validator": { "kind": "age_adult" }
+    },
+    {
+      "field_key": "nutrition_goal",
+      "prompt": "Какова ваша основная цель: улучшить рацион, поддержать, снизить или набрать вес?",
+      "validator": { "kind": "min_len", "min_len": 3, "label": "цель" }
+    },
+    {
+      "field_key": "diet_pattern",
+      "prompt": "Как обычно выглядит ваше питание в течение дня? Достаточно 1–2 предложений.",
+      "validator": { "kind": "min_len", "min_len": 5, "label": "описание рациона" }
+    },
+    {
+      "field_key": "health_limits",
+      "prompt": "Есть ли аллергии, беременность/лактация, РПП, хронические заболевания или лекарства, влияющие на питание? Можно ответить «нет» или «не хочу отвечать».",
+      "validator": { "kind": "optional_text", "max_len": 300 }
+    },
+    {
+      "field_key": "food_preferences",
+      "prompt": "Какие продукты или тип питания вы предпочитаете либо исключаете? Можно ответить «нет».",
+      "validator": { "kind": "optional_text", "max_len": 300 }
+    },
+    {
+      "field_key": "daily_context",
+      "prompt": "Сколько времени обычно есть на готовку и что важнее: бюджет, скорость или разнообразие?",
+      "validator": { "kind": "min_len", "min_len": 3, "label": "бытовой контекст" }
+    }
+  ],
   "therapy": [
     {
       "field_key": "main_concern",

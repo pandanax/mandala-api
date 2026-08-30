@@ -4,5 +4,8 @@
   },
   "therapy": {
     "model": "deepseek-v4-flash"
+  },
+  "nutrition": {
+    "model": "deepseek-v4-flash"
   }
 }

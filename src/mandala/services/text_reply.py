@@ -52,6 +52,7 @@ from mandala.repositories.messages import MessageDTO, MessageRepository
 from mandala.repositories.profiles import ProfileRepository
 from mandala.services.llm_time_context import build_llm_time_context_block
 from mandala.services.nav_protocol import assign_ids, extract_prose_nav, split_llm_nav_suffix
+from mandala.services.nutrition_safety import triage_nutrition
 from mandala.services.quota import RESOURCE_TEXT_REPLY, QuotaService
 from mandala.services.telegram_stars import build_packs_picker_message
 from mandala.verticals import get_vertical_system_prompt
@@ -280,6 +281,31 @@ def handle_inbound_text_llm(
                 system_prompt = f"{system_prompt}\n\n{numerology_to_system_text(num)}"
             except Exception:
                 logger.warning("failed to compute numerology for system prompt", exc_info=True)
+    elif event.vertical_id.strip() == "nutrition":
+        safe_fields = (
+            "age",
+            "nutrition_goal",
+            "diet_pattern",
+            "health_limits",
+            "food_preferences",
+            "daily_context",
+        )
+        profile_lines = [
+            f"- {key}: {str(card[key]).strip()}"
+            for key in safe_fields
+            if key in card and isinstance(card[key], str) and str(card[key]).strip()
+        ]
+        verdict = triage_nutrition(user_text, card)
+        system_prompt = (
+            f"{system_prompt}\n\nПРОФИЛЬ ПИТАНИЯ (минимизированные данные):\n"
+            + ("\n".join(profile_lines) or "- профиль не заполнен")
+            + f"\n\nДЕТЕРМИНИРОВАННЫЙ SAFETY-ВЕРДИКТ: {verdict.level}; причина: {verdict.reason}."
+        )
+        if verdict.level == "limited":
+            system_prompt += (
+                " Давай только общую образовательную информацию, не рассчитывай персональные "
+                "нормы и напомни согласовать изменения с врачом или диетологом."
+            )
     if search_port is not None:
         rag_cfg = RagEnvSettings.from_env()
         try:
@@ -358,7 +384,11 @@ def handle_inbound_text_llm(
         if nav_spec is None:
             cleaned_reply, nav_spec = extract_prose_nav(cleaned_reply)
     else:
-        cleaned_reply, agent_patch = reply, {}
+        if event.vertical_id.strip() == "nutrition":
+            cleaned_reply, nav_spec = split_llm_nav_suffix(reply)
+        else:
+            cleaned_reply = reply
+        agent_patch = {}
     # Защита от пустого ответа: если после отделения хвостов ничего не осталось,
     # откатываемся на исходный reply, а в крайнем случае — на сообщение о недоступности.
     if not cleaned_reply.strip():

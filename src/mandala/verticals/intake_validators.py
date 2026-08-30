@@ -109,5 +109,31 @@ def validator_from_spec(spec: object) -> Validator:
     if kind == "birth_date":
         return _validate_birth_date
 
+    if kind == "age_adult":
+
+        def _age(raw: str) -> str | None:
+            t = raw.strip()
+            if not t.isdigit():
+                return "укажите возраст целым числом"
+            age = int(t)
+            if age < 18:
+                return "помощник предназначен только для взрослых 18+"
+            if age > 120:
+                return "проверьте возраст: ожидается число от 18 до 120"
+            return None
+
+        return _age
+
+    if kind == "optional_text":
+        raw_max = spec.get("max_len", 300)
+        max_len = raw_max if isinstance(raw_max, int) and not isinstance(raw_max, bool) else 300
+
+        def _optional(raw: str) -> str | None:
+            if len(raw.strip()) > max_len:
+                return f"сократите ответ до {max_len} символов; медицинские подробности не нужны"
+            return None
+
+        return _optional
+
     msg = f"unknown validator kind: {kind!r}"
     raise ValueError(msg)

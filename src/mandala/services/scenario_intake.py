@@ -631,6 +631,8 @@ def _first_step_intro(vertical_id: str) -> str:
         return "Здравствуйте! Для персонализации ответов сначала короткая анкета. "
     if v == "therapy":
         return "Здравствуйте! Перед разговором задам пару вводных вопросов. "
+    if v == "nutrition":
+        return "Здравствуйте! Для безопасной персонализации сначала короткая анкета. "
     return ""
 
 
@@ -657,6 +659,14 @@ def _vertical_greeting(vertical_id: str) -> str:
             "Сначала пара вводных вопросов, затем перейдём к разговору.\n"
             f"{_COMMANDS_HELP}"
         )
+    if v == "nutrition":
+        return (
+            "Здравствуйте! Я помощник по питанию для взрослых и общих wellness-целей.\n"
+            "Помогу сделать рацион удобнее и устойчивее, но не ставлю диагнозы, не назначаю "
+            "лечебные диеты, лекарства или БАДы и не заменяю врача.\n"
+            "Сначала задам несколько коротких вопросов; чувствительные подробности не нужны.\n"
+            f"{_NUTRITION_COMMANDS_HELP}"
+        )
     return (
         "Здравствуйте! Сначала задам пару вводных вопросов, затем перейдём к диалогу.\n"
         f"{_COMMANDS_HELP}"
@@ -677,6 +687,17 @@ _COMMANDS_HELP = (
     "• /topup — купить сообщения (пополнить баланс)\n"
     "• /help — это сообщение\n"
     "Кнопки под ответами — это навигация: углубиться в тему или вернуться назад."
+)
+
+_NUTRITION_COMMANDS_HELP = (
+    "Меню бота:\n"
+    "• /plan — следующий небольшой шаг или план дня\n"
+    "• /checkin — короткая отметка прогресса\n"
+    "• /profile — профиль питания\n"
+    "• /reset — полный сброс профиля и истории\n"
+    "• /promo — активировать промо-код\n"
+    "• /topup — купить сообщения\n"
+    "• /help — помощь"
 )
 
 _ASTROLOGY_HELP_TEXT = (
@@ -801,13 +822,23 @@ def _handle_command(
     if command == "/help" and event.vertical_id.strip() == "astrology":
         return _astrology_help_message()
 
-    if command in _NATAL_COMMANDS:
+    if command == "/help" and event.vertical_id.strip() == "nutrition":
+        return [
+            OutboundMessage(
+                text=f"🥗 **Помощник по питанию**\n\n{_NUTRITION_COMMANDS_HELP}\n\n"
+                "Сервис предназначен для взрослых и общих wellness-задач. При заболеваниях, "
+                "беременности, РПП, лекарствах или острых симптомах обратитесь к специалисту.",
+                buttons=[[_btn("🥗 План", "/plan"), _btn("✅ Отметиться", "/checkin")]],
+            )
+        ]
+
+    if command in _NATAL_COMMANDS and event.vertical_id.strip() == "astrology":
         return _instant_natal(conn, user_id)
 
-    if command in _MATRIX_COMMANDS:
+    if command in _MATRIX_COMMANDS and event.vertical_id.strip() == "astrology":
         return _instant_matrix(conn, user_id)
 
-    if command in _NUMEROLOGY_COMMANDS:
+    if command in _NUMEROLOGY_COMMANDS and event.vertical_id.strip() == "astrology":
         return _instant_numerology(conn, user_id)
 
     if command in _PROFILE_COMMANDS:

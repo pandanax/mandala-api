@@ -25,6 +25,18 @@ def post_intake_completion_message(vertical_id: str, agent_card: dict[str, Any])
         return _astrology_completion(agent_card)
     if v == "therapy":
         return _therapy_completion()
+    if v == "nutrition":
+        return OutboundMessage(
+            text=(
+                "Спасибо, профиль питания сохранён. Выберите небольшой следующий шаг или "
+                "напишите вопрос своими словами."
+            ),
+            buttons=[
+                [_btn("🥗 План", "mdl_nut:plan"), _btn("✅ Отметиться", "mdl_nut:checkin")],
+                [_btn("👤 Профиль", "/profile")],
+                _buy_messages_row(),
+            ],
+        )
     return OutboundMessage(
         text=(
             "Спасибо, анкета сохранена. Дальше можно писать запросы текстом — "
