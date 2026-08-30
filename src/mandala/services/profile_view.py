@@ -49,17 +49,29 @@ def build_profile_message(
     _ = message_balance  # намеренно не показываем в карточке профиля
     lines: list[str] = ["👤 **Ваш профиль**", ""]
 
-    for key, label in (
-        ("full_name", "Имя"),
-        ("birth_date", "Дата рождения"),
-        ("birth_place", "Место рождения"),
-        ("birth_time", "Время рождения"),
-    ):
+    fields = (
+        (
+            ("age", "Возраст"),
+            ("nutrition_goal", "Цель"),
+            ("diet_pattern", "Обычный рацион"),
+            ("health_limits", "Важные ограничения"),
+            ("food_preferences", "Предпочтения"),
+            ("daily_context", "Бытовой контекст"),
+        )
+        if vertical_id.strip() == "nutrition"
+        else (
+            ("full_name", "Имя"),
+            ("birth_date", "Дата рождения"),
+            ("birth_place", "Место рождения"),
+            ("birth_time", "Время рождения"),
+        )
+    )
+    for key, label in fields:
         val = agent_card.get(key)
         if isinstance(val, str) and val.strip():
             lines.append(f"**{label}:** {val.strip()}")
 
-    system = agent_card.get(AGENT_CARD_ASTRO_SYSTEM)
+    system = agent_card.get(AGENT_CARD_ASTRO_SYSTEM) if vertical_id.strip() == "astrology" else None
     if isinstance(system, str) and system.strip():
         label = "🕉️ Ведическая (Lahiri)" if system == "vedic" else "🌟 Западная (тропическая)"
         lines.append(f"**Система:** {label}")

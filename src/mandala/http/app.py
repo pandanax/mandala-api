@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -19,18 +18,20 @@ from mandala import metrics
 from mandala.adapters.telegram.billing_updates import process_telegram_billing_update
 from mandala.adapters.telegram.bot_api import TelegramBotApiClient
 from mandala.adapters.telegram.bot_commands import register_bot_commands_if_configured
-from mandala.adapters.telegram.bot_token import get_bot_token_for_vertical
+from mandala.adapters.telegram.bot_token import get_bot_token_for_vertical, load_bot_token_map
 from mandala.adapters.telegram.callback_ack import answer_callback_query_if_present
 from mandala.adapters.telegram.daily_forecast_scheduler import (
     start_daily_forecast_scheduler,
     stop_daily_forecast_scheduler,
 )
 from mandala.adapters.telegram.inbound_map import telegram_update_to_inbound_event
+from mandala.adapters.telegram.secrets import get_webhook_secret_for_vertical
 from mandala.adapters.telegram.webhook_delivery import process_telegram_webhook_update_async
 from mandala.http.engine_access import get_engine
 from mandala.http.web_chat import router as web_chat_router
 from mandala.llm.factory import log_effective_models
 from mandala.observability import op_format
+from mandala.verticals.registry import get_vertical_definition
 
 logger = logging.getLogger(__name__)
 
@@ -168,12 +169,17 @@ def create_app() -> FastAPI:
     async def telegram_webhook(vertical_id: str, request: Request) -> dict[str, str]:
         """Webhook endpoint для обработки обновлений от Telegram."""
         # Проверка секретного токена Telegram (X-Telegram-Bot-Api-Secret-Token)
-        secret_token = os.environ.get("TELEGRAM_WEBHOOK_SECRET")
+        secret_token = get_webhook_secret_for_vertical(vertical_id)
         if secret_token:
             received_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
             if not received_token or received_token != secret_token:
                 logger.warning("Invalid webhook secret token for vertical_id=%s", vertical_id)
                 raise HTTPException(status_code=403, detail="Invalid secret token")
+
+        # Fail closed before parsing an update or touching user data. A route is active only
+        # when both the product registry and token map agree on the vertical.
+        if get_vertical_definition(vertical_id) is None or vertical_id not in load_bot_token_map():
+            raise HTTPException(status_code=404, detail="Unknown Telegram vertical")
 
         try:
             # Получаем JSON body от Telegram

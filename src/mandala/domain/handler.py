@@ -21,6 +21,7 @@ from mandala.services.image_reply import handle_inbound_image_generation
 from mandala.services.intent_router import post_intake_intent
 from mandala.services.nav_guarantee import ensure_nav
 from mandala.services.nav_protocol import resolve_nav_action
+from mandala.services.nutrition_safety import triage_nutrition
 from mandala.services.profile_view import build_profile_message
 from mandala.services.scenario_intake import handle_intake_before_llm
 from mandala.services.telegram_stars import (
@@ -41,6 +42,7 @@ from mandala.verticals.quick_actions import (
     is_topics_menu,
     parse_pack_callback,
 )
+from mandala.verticals.registry import get_vertical_definition, has_capability
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +82,11 @@ def handle_inbound(
     :func:`mandala.services.text_reply.handle_inbound_text_llm` подставляется клиент из env,
     если ``MANDALA_RAG_BACKEND=qdrant`` и задан ``QDRANT_URL``.
     """
+    definition = get_vertical_definition(event.vertical_id)
+    if definition is None:
+        logger.warning("rejecting inbound for unknown vertical_id=%s", event.vertical_id)
+        return []
+
     uid = UserIdentityService(conn).get_or_create_user(
         vertical_id=event.vertical_id,
         channel=event.channel,
@@ -134,7 +141,9 @@ def handle_inbound(
 
     # Настройка утренней рассылки (``/morning`` и кнопки ``mdl:morning*``) —
     # детерминированно, без LLM; до анкеты, чтобы работало в любом состоянии профиля.
-    if is_daily_forecast_action(event.text, profile.agent_card):
+    if has_capability(event.vertical_id, "daily_forecast") and is_daily_forecast_action(
+        event.text, profile.agent_card
+    ):
         logger.info(
             "funnel inbound %s",
             op_format(
@@ -147,6 +156,27 @@ def handle_inbound(
         )
         return ensure_nav(
             handle_daily_forecast_action(conn, user_id=uid, text=event.text or ""),
+            event.vertical_id,
+        )
+
+    # Reject callbacks/commands belonging to another product instead of leaking them to the
+    # intake validator or spending a wallet message on an LLM interpretation.
+    raw_action = (event.text or "").strip().lower()
+    if event.vertical_id == "nutrition" and (
+        raw_action in {"/natal", "/matrix", "/numerology", "/forecast", "/morning"}
+        or raw_action.startswith("mdl:morning")
+        or raw_action.startswith("mdl:fc_")
+        or raw_action.startswith("mdl:th_")
+    ):
+        return ensure_nav(
+            [OutboundMessage(text="Эта функция доступна только в астрологическом боте.")],
+            event.vertical_id,
+        )
+    if event.vertical_id == "astrology" and (
+        raw_action in {"/plan", "/checkin"} or raw_action.startswith("mdl_nut:")
+    ):
+        return ensure_nav(
+            [OutboundMessage(text="Эта функция доступна только в помощнике по питанию.")],
             event.vertical_id,
         )
 
@@ -221,7 +251,10 @@ def handle_inbound(
         )
         return _handle_forecast_menu()
 
-    if post_intake_intent(event_for_pipeline.text) == "image":
+    if (
+        has_capability(event.vertical_id, "image_generation")
+        and post_intake_intent(event_for_pipeline.text) == "image"
+    ):
         logger.info(
             "funnel inbound %s",
             op_format(
@@ -248,6 +281,11 @@ def handle_inbound(
     )
     raw_summary = profile.scenario_state.get("dialog_summary")
     dialog_summary = raw_summary.strip() if isinstance(raw_summary, str) else None
+    if event.vertical_id.strip() == "nutrition":
+        verdict = triage_nutrition(event_for_pipeline.text or "", profile.agent_card)
+        if verdict.level == "refer":
+            return ensure_nav([OutboundMessage(text=verdict.response)], event.vertical_id)
+
     text_result = handle_inbound_text_llm(
         conn,
         event_for_pipeline,

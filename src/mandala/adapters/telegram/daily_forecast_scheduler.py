@@ -40,6 +40,7 @@ from mandala.services.daily_forecast import (
     today_str_msk,
 )
 from mandala.verticals.client_knowledge import AGENT_CARD_DAILY_FORECAST_LAST_SENT
+from mandala.verticals.registry import has_capability
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ def run_daily_forecast_tick(
 
     sent_total = 0
     for vertical_id, token in tokens.items():
-        if not token:
+        if not token or not has_capability(vertical_id, "daily_forecast"):
             continue
         try:
             sent_total += _process_vertical(

@@ -203,7 +203,7 @@ def test_known_vertical_ids_unions_overrides_and_env() -> None:
     overrides = load_vertical_overrides(path=bundled_overrides_path())
     env_models = load_env_model_overrides({"LLM_MODEL_TAROT": "some-model"})
     provider = LlmConfigProvider(_env(), overrides, env_models)
-    assert provider.known_vertical_ids() == ["astrology", "tarot", "therapy"]
+    assert provider.known_vertical_ids() == ["astrology", "nutrition", "tarot", "therapy"]
 
 
 def test_log_effective_models_reports_each_vertical(
