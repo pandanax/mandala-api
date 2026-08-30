@@ -33,3 +33,18 @@ adult-only/general-wellness и не позиционируется как вра
 6. Telegram-бот уже создан; локальный секрет хранится у владельца под именем `FITBOT_TOKEN`.
    Репозиторий и runtime используют каноническое имя `TELEGRAM_BOT_TOKEN_NUTRITION`; значение
    токена никогда не выводится в логи и не коммитится.
+
+## Production Telegram runbook
+
+Nutrition обслуживается общим multi-token polling-контейнером. Webhook и polling для одного
+токена взаимоисключающие; старый n8n webhook должен оставаться отключённым. При подключении или
+восстановлении проверять не только текстовые сообщения, но и полный путь inline-кнопки:
+
+1. `getWebhookInfo.url` пустой;
+2. nutrition polling логирует `getUpdates 200 OK` без `409 Conflict`;
+3. polling явно подписан на `callback_query` (источник правды —
+   `bot_api.POLLING_ALLOWED_UPDATES`);
+4. ручной smoke `ответ анкеты → Верно ✅ → следующий вопрос` проходит, spinner сразу исчезает.
+
+Подробный порядок переключения и rollback описан в
+[`scripts/deploy/README.md`](../../scripts/deploy/README.md#telegram-delivery-webhook-и-polling-взаимоисключающие).

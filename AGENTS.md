@@ -23,6 +23,12 @@ Telegram webhook and `getUpdates` cannot run together; the n8n workflow/infrastr
 not deleted. Production RAG remains `none`, so no Qdrant indexing was attempted. Do not describe
 the owner authorization as medical approval or expand the pilot audience without real review.
 
+Production VM access currently uses Yandex Cloud OS Login. On the owner's workstation the
+working deploy target is `SSH_HOST=pandanaxya@api.mandala-app.online`; the deploy script's legacy
+default `ubuntu@…` may fail with `Permission denied (publickey)`. Resolve the effective SSH user
+with a read-only connection check before deploying and pass `SSH_HOST` explicitly; do not change
+keys, OS Login, or server users as part of an unrelated deploy.
+
 ## Default delivery workflow for requested changes
 
 When the user asks to change the product, completing the task normally means delivering the
