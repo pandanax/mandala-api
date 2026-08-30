@@ -17,10 +17,10 @@ def upgrade() -> None:
     op.execute(
         sa.text(
             """
-            INSERT INTO agent_verticals (slug, name, is_active)
+            INSERT INTO agent_verticals (slug, display_name, is_active)
             VALUES ('nutrition', 'Нутрициолог', true)
             ON CONFLICT (slug) DO UPDATE
-            SET name = EXCLUDED.name, is_active = EXCLUDED.is_active
+            SET display_name = EXCLUDED.display_name, is_active = EXCLUDED.is_active
             """
         )
     )
