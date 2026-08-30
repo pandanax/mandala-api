@@ -19,6 +19,17 @@ logger = logging.getLogger(__name__)
 _DEFAULT_BASE = "https://api.telegram.org"
 _MAX_RETRIES = 5
 
+# Telegram сохраняет последнее значение ``allowed_updates`` между вызовами
+# getUpdates/setWebhook. Поэтому после миграции со стороннего webhook, который был
+# подписан только на сообщения, отсутствие этого параметра незаметно отключает
+# inline-кнопки: тексты приходят, а callback_query — нет.
+POLLING_ALLOWED_UPDATES = (
+    "message",
+    "edited_message",
+    "callback_query",
+    "pre_checkout_query",
+)
+
 
 class TelegramApiError(RuntimeError):
     """Ответ Telegram с ``ok: false``."""
@@ -276,7 +287,10 @@ class TelegramBotApiClient:
         raise TelegramApiError(msg)
 
     def get_updates(self, *, offset: int | None = None, timeout: int = 30) -> list[dict[str, Any]]:
-        params: dict[str, Any] = {"timeout": timeout}
+        params: dict[str, Any] = {
+            "timeout": timeout,
+            "allowed_updates": list(POLLING_ALLOWED_UPDATES),
+        }
         if offset is not None:
             params["offset"] = offset
         raw = self.call("getUpdates", params)

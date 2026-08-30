@@ -2,12 +2,36 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock
 
+import httpx
+
+from mandala.adapters.telegram.bot_api import POLLING_ALLOWED_UPDATES, TelegramBotApiClient
 from mandala.adapters.telegram.inbound_map import telegram_update_to_inbound_event
 from mandala.adapters.telegram.outbound_send import deliver_outbound_messages
 from mandala.adapters.telegram.secrets import mask_bot_token
 from mandala.domain import OutboundMessage
+
+
+def test_get_updates_explicitly_subscribes_to_callbacks() -> None:
+    """Старый webhook не должен оставить polling в режиме «только messages»."""
+    captured: dict[str, object] = {}
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json={"ok": True, "result": []})
+
+    transport = httpx.MockTransport(_handler)
+    with httpx.Client(transport=transport) as http_client:
+        with TelegramBotApiClient("123:abc", client=http_client) as api:
+            assert api.get_updates(offset=17, timeout=3) == []
+
+    assert captured == {
+        "timeout": 3,
+        "offset": 17,
+        "allowed_updates": list(POLLING_ALLOWED_UPDATES),
+    }
 
 
 def test_mask_bot_token_short() -> None:
