@@ -15,6 +15,14 @@ secrets resolve as `TELEGRAM_WEBHOOK_SECRET_<VERTICAL>` with legacy shared-secre
 webhook route is accepted only when registry and token map agree. Do not use Qdrant
 `--recreate-collection` when indexing nutrition alongside production astrology.
 
+Production state (2026-08-30): the owner explicitly authorized a personal nutrition pilot
+without external clinical sign-off. `TELEGRAM_BOT_TOKEN_NUTRITION` and a separate webhook secret
+are stored only in `/opt/mandala/env`; delivery uses the shared multi-token **polling** container.
+The previous nutrition Telegram webhook pointing at the n8n Fitbot endpoint was detached because
+Telegram webhook and `getUpdates` cannot run together; the n8n workflow/infrastructure itself was
+not deleted. Production RAG remains `none`, so no Qdrant indexing was attempted. Do not describe
+the owner authorization as medical approval or expand the pilot audience without real review.
+
 ## Default delivery workflow for requested changes
 
 When the user asks to change the product, completing the task normally means delivering the
