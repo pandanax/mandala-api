@@ -414,6 +414,13 @@ object `{"<vertical>": "<token>"}` → **3)** legacy `TELEGRAM_BOT_TOKEN` + `TEL
 - **Polling** is multi-tenant via `polling.run_polling_multi` (one daemon thread per token,
   shared engine; single-entry map delegates to `run_polling_forever`). `python -m
   mandala.adapters.telegram` polls every configured vertical. Env documented in `.env.example`.
+- **Polling must always send an explicit `allowed_updates` list including `callback_query`.**
+  Telegram persists the previous `allowed_updates` value across `setWebhook`/`getUpdates` calls;
+  after migrating a bot from an n8n webhook subscribed only to messages, omitting the parameter
+  makes text work while every inline button spins forever. Source of truth:
+  `bot_api.POLLING_ALLOWED_UPDATES`. Callback queries are acknowledged before domain work, and a
+  transient `getUpdates` failure is retried so one vertical's daemon thread cannot die silently
+  while the other bot threads keep the shared process alive.
 
 ## Request path: sync turn runs off the event-loop (non-blocking)
 

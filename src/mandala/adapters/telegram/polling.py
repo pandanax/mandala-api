@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from typing import Any
 
 from sqlalchemy.engine import Engine
@@ -64,6 +65,9 @@ def process_telegram_update(
         api=api,
     ):
         return
+    # Telegram показывает spinner до answerCallbackQuery. Подтверждаем нажатие до
+    # БД/LLM/доставки, чтобы ошибка или долгий ответ ниже не оставляли кнопку висеть.
+    answer_callback_query_if_present(api, update)
     event = telegram_update_to_inbound_event(update, vertical_id=vertical_id)
     if event is None:
         return
@@ -106,7 +110,6 @@ def process_telegram_update(
         vertical_id=vertical_id,
     )
     persist_photo_file_ids(engine, event, uploaded)
-    answer_callback_query_if_present(api, update)
 
 
 def run_polling_forever(
@@ -131,7 +134,16 @@ def run_polling_forever(
     next_offset: int | None = None
     with TelegramBotApiClient(token) as api:
         while True:
-            updates = api.get_updates(offset=next_offset, timeout=30)
+            try:
+                updates = api.get_updates(offset=next_offset, timeout=30)
+            except Exception:  # noqa: BLE001 — polling обязан переживать сбой одного запроса
+                logger.exception(
+                    "telegram: ошибка getUpdates vertical_id=%s token=%s; повтор через 5с",
+                    vid,
+                    mask_bot_token(token),
+                )
+                time.sleep(5)
+                continue
             for u in updates:
                 uid = u.get("update_id")
                 if isinstance(uid, int):
