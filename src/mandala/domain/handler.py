@@ -134,7 +134,7 @@ def handle_inbound(
 
     # Настройка утренней рассылки (``/morning`` и кнопки ``mdl:morning*``) —
     # детерминированно, без LLM; до анкеты, чтобы работало в любом состоянии профиля.
-    if is_daily_forecast_action(event.text):
+    if is_daily_forecast_action(event.text, profile.agent_card):
         logger.info(
             "funnel inbound %s",
             op_format(
