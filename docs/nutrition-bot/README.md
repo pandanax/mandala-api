@@ -1,6 +1,8 @@
 # План запуска Telegram-бота «Нутрициолог»
 
-Статус: **код и migration развёрнуты; production-токен не подключён, запуск ожидает clinical review**.
+Статус: **личный owner-authorized pilot активирован через production polling**. Внешний
+clinical sign-off не получен; владелец явно принял это ограничение. Бот остаётся
+adult-only/general-wellness и не позиционируется как врач.
 
 Цель — запустить рядом с действующим ботом `astrology` второй Telegram-бот с
 `vertical_id = "nutrition"`, используя то же Python-ядро, БД, HTTP-приложение и контур
