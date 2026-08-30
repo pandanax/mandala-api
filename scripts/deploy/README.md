@@ -43,22 +43,45 @@ RUN_MIGRATIONS=0 bash scripts/deploy/deploy.sh     # без миграций
 SSH_HOST=ubuntu@staging bash scripts/deploy/deploy.sh
 ```
 
+Production использует Yandex Cloud OS Login, поэтому локально сначала проверьте эффективного
+пользователя и передавайте его явно. На текущем owner-workstation рабочая команда:
+
+```bash
+ssh -o BatchMode=yes pandanaxya@api.mandala-app.online true
+SSH_HOST=pandanaxya@api.mandala-app.online bash scripts/deploy/deploy.sh
+```
+
+Устаревший default `ubuntu@…` может вернуть `Permission denied (publickey)`. Это не повод менять
+ключи или пользователей ВМ: остановите попытку и укажите корректный `SSH_HOST`.
+
 ### Предпосылки (уже настроены на проде)
 
-- **passwordless SSH** на ВМ (`ssh ubuntu@api.mandala-app.online true` проходит без пароля);
+- **passwordless SSH** на ВМ для эффективного OS Login пользователя
+  (`ssh -o BatchMode=yes pandanaxya@api.mandala-app.online true` проходит без пароля);
 - на ВМ: **docker**, файл окружения **`/opt/mandala/env`** и скрипт **`/opt/mandala/restart_app.sh`** (копия [`restart_app.sh`](restart_app.sh); при правке — обновить и на ВМ, см. ниже);
 - секреты (`DATABASE_URL`, `TELEGRAM_BOT_TOKEN`, `LLM_*`, `TELEGRAM_WEBHOOK_SECRET`) — только в `/opt/mandala/env`, в git не коммитятся.
 
-### После деплоя нового кода с Telegram-фичами
+### Telegram delivery: webhook и polling взаимоисключающие
 
-Telegram-вебхук живёт на стороне Telegram и деплоем не меняется. Если бот перестал отвечать —
-проверь, что вебхук указывает на ВМ (а не на старый serverless-контейнер):
+Для одного bot token должен работать ровно один способ доставки. Production nutrition и
+astrology сейчас используют общий multi-token polling-контейнер. Нельзя одновременно оставлять
+старый webhook: Telegram вернёт polling-потоку `409 Conflict`.
 
-```bash
-ssh ubuntu@api.mandala-app.online 'set -a; . /opt/mandala/env; set +a; \
-  curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"'
-# при необходимости — setWebhook на https://api.mandala-app.online/webhooks/telegram/<vertical_id>
-```
+Чек-лист переноса токена с webhook (например, n8n) на polling:
+
+1. Записать старый URL через `getWebhookInfo`, чтобы rollback был возможен.
+2. Вызвать `deleteWebhook` без `drop_pending_updates=true`; не удалять старый workflow или его
+   инфраструктуру без отдельного разрешения.
+3. Убедиться, что `getWebhookInfo.result.url == ""`.
+4. Перезапустить `mandala-telegram-polling`. Код обязан передавать явный `allowed_updates` со
+   значениями `message`, `edited_message`, `callback_query`, `pre_checkout_query`: Telegram
+   запоминает старый фильтр, и без этого тексты могут работать, а inline-кнопки — бесконечно
+   крутиться.
+5. Проверить в логах старт нужной vertical, `getUpdates 200 OK`, отсутствие `409`, затем вручную
+   пройти `текст → inline-кнопка → следующий шаг`. Проверка только текста недостаточна.
+
+Если выбран webhook, наоборот остановите polling для этого токена, задайте per-vertical secret и
+явный список update types при `setWebhook`. Никогда не переключайте оба механизма одновременно.
 
 ## Файлы каталога
 
@@ -74,8 +97,9 @@ ssh ubuntu@api.mandala-app.online 'set -a; . /opt/mandala/env; set +a; \
 ### Обновить `restart_app.sh` на ВМ (если правил в репо)
 
 ```bash
-scp scripts/deploy/restart_app.sh ubuntu@api.mandala-app.online:/tmp/
-ssh ubuntu@api.mandala-app.online 'sudo install -m 0755 -o root -g root /tmp/restart_app.sh /opt/mandala/restart_app.sh'
+DEPLOY_TARGET=pandanaxya@api.mandala-app.online
+scp scripts/deploy/restart_app.sh "$DEPLOY_TARGET:/tmp/"
+ssh "$DEPLOY_TARGET" 'sudo install -m 0755 -o root -g root /tmp/restart_app.sh /opt/mandala/restart_app.sh'
 ```
 
 ## Бэкапы БД

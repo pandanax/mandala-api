@@ -221,8 +221,11 @@ legacy astrology-кодов; callback должен проверяться про
 4. Добавить `LLM_MODEL_NUTRITION`, канонический `TELEGRAM_BOT_TOKEN_NUTRITION` (источник —
    локальный `FITBOT_TOKEN`) и
    `TELEGRAM_WEBHOOK_SECRET_NUTRITION`; legacy astrology env не переименовывать в том же релизе.
-5. Задать webhook нового токена на `/webhooks/telegram/nutrition` с его secret и всеми нужными
-   update types (`message`, `callback_query`, billing updates).
+5. Подключить токен к выбранному production-механизму доставки. Текущий production использует
+   общий multi-token polling: сначала удалить старый n8n webhook без сброса pending updates,
+   проверить пустой `getWebhookInfo.url`, затем перезапустить polling. `getUpdates` обязан явно
+   запрашивать `message`, `edited_message`, `callback_query`, `pre_checkout_query`, потому что
+   Telegram сохраняет предыдущий `allowed_updates` от webhook.
 6. Выполнить smoke новым тестовым пользователем: intake → profile → вопрос → nav → reset → Stars
    test invoice; затем повторить короткий smoke astrology.
 7. Открыть nutrition ограниченной аудитории; наблюдать 24–72 часа за error rate, latency,
@@ -233,8 +236,9 @@ legacy astrology-кодов; callback должен проверяться про
 
 ### Rollback
 
-- Снять webhook/удалить только `TELEGRAM_BOT_TOKEN_NUTRITION` из runtime env и перезапустить
-  приложение. Astrology token и webhook остаются без изменений.
+- Для текущего polling-rollout удалить только `TELEGRAM_BOT_TOKEN_NUTRITION` из runtime env и
+  перезапустить polling. Если до rollout существовал отдельный webhook, восстанавливать его только
+  по заранее записанным URL/secret/update types. Astrology token и способ доставки не менять.
 - Код можно откатить штатным redeploy предыдущего `main`; новая строка `agent_verticals` и
   nutrition-профили безвредны и не требуют destructive downgrade.
 - Не запускать downgrade миграции и не удалять общую Qdrant collection. Nutrition chunks можно
