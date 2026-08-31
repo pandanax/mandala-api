@@ -23,7 +23,11 @@ from mandala.adapters.telegram.inbound_map import telegram_update_to_inbound_eve
 from mandala.adapters.telegram.outbound_send import deliver_outbound_messages
 from mandala.adapters.telegram.photo_cache import persist_photo_file_ids
 from mandala.adapters.telegram.typing_keepalive import run_with_typing_keepalive
-from mandala.adapters.telegram.voice_transcribe import resolve_voice_to_text
+from mandala.adapters.telegram.voice_transcribe import (
+    VoiceResolution,
+    complete_voice_processing,
+    resolve_voice_to_text,
+)
 from mandala.domain import OutboundMessage
 from mandala.domain.handler import handle_inbound
 from mandala.http.engine_access import get_engine
@@ -40,6 +44,7 @@ def process_telegram_webhook_update(
     """``handle_inbound`` → ``deliver`` → ``answerCallbackQuery`` (один запрос HTTP)."""
     raw_uid = update_data.get("update_id")
     upd_id = raw_uid if isinstance(raw_uid, int) else None
+    voice_resolution: VoiceResolution | None = None
     try:
         event = telegram_update_to_inbound_event(update_data, vertical_id=vertical_id)
         if event is None:
@@ -49,19 +54,22 @@ def process_telegram_webhook_update(
         bot_token = get_bot_token_for_vertical(vertical_id)
         engine = get_engine()
 
-        # Голос/аудио → текст (STT) до общего пайплайна; сбой = мягкое сообщение, не падаем.
+        # Telegram voice → Yandex SpeechKit → тот же доменный text pipeline.
         if bot_token and chat_id_early is not None:
             with TelegramBotApiClient(bot_token) as stt_api:
-                resolution = resolve_voice_to_text(event, stt_api)
-                if resolution.soft_message is not None:
+                voice_resolution = resolve_voice_to_text(event, stt_api)
+                if voice_resolution.skip_processing:
+                    return
+                if voice_resolution.soft_message is not None:
                     deliver_outbound_messages(
                         stt_api,
                         chat_id=int(chat_id_early),
-                        messages=[OutboundMessage(text=resolution.soft_message)],
+                        messages=[OutboundMessage(text=voice_resolution.soft_message)],
                         vertical_id=vertical_id,
                     )
+                    complete_voice_processing(voice_resolution, success=True)
                     return
-            event = resolution.event
+            event = voice_resolution.event
 
         with engine.begin() as conn:
             if bot_token and chat_id_early is not None:
@@ -130,7 +138,11 @@ def process_telegram_webhook_update(
                 )
 
             answer_callback_query_if_present(api, update_data)
+        if voice_resolution is not None:
+            complete_voice_processing(voice_resolution, success=True)
     except Exception:
+        if voice_resolution is not None:
+            complete_voice_processing(voice_resolution, success=False)
         logger.exception(
             "funnel webhook %s",
             op_format(vertical_id=vertical_id, stage="webhook_processing_error", update_id=upd_id),
