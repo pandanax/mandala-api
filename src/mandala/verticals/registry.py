@@ -22,6 +22,9 @@ ASTROLOGY_COMMANDS: tuple[BotCommand, ...] = (
 
 NUTRITION_COMMANDS: tuple[BotCommand, ...] = (
     ("start", "Начать"),
+    ("meal", "Записать, что съел"),
+    ("foodlog", "Дневник за сегодня"),
+    ("foodweek", "Дневник за 7 дней"),
     ("profile", "Мой профиль"),
     ("plan", "План питания"),
     ("checkin", "Отметить прогресс"),
@@ -61,7 +64,7 @@ VERTICALS: dict[str, VerticalDefinition] = {
     "nutrition": VerticalDefinition(
         slug="nutrition",
         commands=NUTRITION_COMMANDS,
-        capabilities=_COMMON | {"meal_plan", "check_in"},
+        capabilities=_COMMON | {"meal_plan", "check_in", "food_diary"},
         allowed_llm_profile_keys=frozenset({"nav_map"}),
     ),
 }

@@ -254,7 +254,7 @@ legacy astrology-кодов; callback должен проверяться про
 | Telegram | `bot_commands.py`, новый resolver secrets, `http/app.py`, callback routing |
 | UX | `profile_view.py`, `post_intake_offers.py`, `nav_guarantee.py` или registry adapters |
 | LLM/RAG | `text_reply.py`, `llm/vertical_overrides.json`, `verticals/kb/nutrition/**` |
-| DB | новая Alembic migration только для seed nutrition |
+| DB | seed nutrition + отдельная `nutrition_meals` для пищевого дневника и КБЖУ |
 | Deploy/docs | `.env.example`, deploy README/smoke, runbook двух webhook |
 | Tests | unit + integration + RAG smoke + two-token Telegram E2E + safety corpus |
 
@@ -263,8 +263,9 @@ legacy astrology-кодов; callback должен проверяться про
 1. Позиционирование: «нутрициолог», «помощник по питанию» или брендовый персонаж. Для MVP
    безопаснее «помощник по питанию», без заявления медицинской квалификации.
 2. Целевая аудитория: предлагается строго 18+ и wellness-only.
-3. Нужны ли числовые калории/БЖУ в первом релизе. Рекомендация: сначала порционный/привычечный
-   подход, числовой расчёт — отдельной проверенной функцией во второй итерации.
+3. **Решено владельцем:** числовые калории/БЖУ добавлены отдельным пищевым дневником. Модель
+   возвращает строгую структуру, Python валидирует диапазоны и сам суммирует продукты до записи;
+   результат всегда называется приблизительной оценкой.
 4. Нужен ли ежедневный check-in/push. Рекомендация: MVP — `/checkin` по запросу; проактивную
    рассылку проектировать отдельно, не переиспользовать астрологический daily forecast.
 5. География и продуктовая база: Россия/СНГ, доступные продукты, русский язык; кто выполняет

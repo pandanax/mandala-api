@@ -22,6 +22,7 @@ from uuid import UUID
 from sqlalchemy.engine import Connection
 
 from mandala.domain.contracts import InboundEvent, OutboundMessage
+from mandala.repositories.food_diary import FoodDiaryRepository
 from mandala.repositories.messages import MessageRepository
 from mandala.repositories.profiles import ClientProfileDTO, ProfileRepository
 from mandala.repositories.wallet import WalletRepository
@@ -691,6 +692,9 @@ _COMMANDS_HELP = (
 
 _NUTRITION_COMMANDS_HELP = (
     "Меню бота:\n"
+    "• /meal — записать еду и оценить калории/БЖУ\n"
+    "• /foodlog — пищевой дневник за сегодня\n"
+    "• /foodweek — сводка за последние 7 дней\n"
     "• /plan — следующий небольшой шаг или план дня\n"
     "• /checkin — короткая отметка прогресса\n"
     "• /profile — профиль питания\n"
@@ -828,7 +832,14 @@ def _handle_command(
                 text=f"🥗 **Помощник по питанию**\n\n{_NUTRITION_COMMANDS_HELP}\n\n"
                 "Сервис предназначен для взрослых и общих wellness-задач. При заболеваниях, "
                 "беременности, РПП, лекарствах или острых симптомах обратитесь к специалисту.",
-                buttons=[[_btn("🥗 План", "/plan"), _btn("✅ Отметиться", "/checkin")]],
+                buttons=[
+                    [
+                        _btn("➕ Записать еду", "mdl_nut:meal"),
+                        _btn("📒 Сегодня", "mdl_nut:log:today"),
+                    ],
+                    [_btn("📊 За 7 дней", "mdl_nut:log:week")],
+                    [_btn("🥗 План", "/plan"), _btn("✅ Отметиться", "/checkin")],
+                ],
             )
         ]
 
@@ -867,11 +878,17 @@ def _handle_command(
         n_deleted = MessageRepository(conn).delete_for_user_vertical(
             user_id=user_id, vertical_id=event.vertical_id
         )
+        deleted_meals = (
+            FoodDiaryRepository(conn).delete_for_user(user_id=user_id)
+            if event.vertical_id.strip() == "nutrition"
+            else 0
+        )
         logger.info(
-            "intake hard reset vertical_id=%s user_id=%s deleted_messages=%d",
+            "intake hard reset vertical_id=%s user_id=%s deleted_messages=%d deleted_meals=%d",
             event.vertical_id,
             user_id,
             n_deleted,
+            deleted_meals,
         )
         first_prompt = steps[0].prompt if steps else ""
         welcome = f"Готово, я всё забыл — начинаем с чистого листа.\n\n{greeting}"

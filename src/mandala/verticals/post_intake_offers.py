@@ -28,10 +28,12 @@ def post_intake_completion_message(vertical_id: str, agent_card: dict[str, Any])
     if v == "nutrition":
         return OutboundMessage(
             text=(
-                "Спасибо, профиль питания сохранён. Выберите небольшой следующий шаг или "
-                "напишите вопрос своими словами."
+                "Спасибо, профиль питания сохранён. Можно записывать съеденное, смотреть "
+                "дневник или задать вопрос своими словами."
             ),
             buttons=[
+                [_btn("➕ Записать еду", "mdl_nut:meal"), _btn("📒 Сегодня", "mdl_nut:log:today")],
+                [_btn("📊 За 7 дней", "mdl_nut:log:week")],
                 [_btn("🥗 План", "mdl_nut:plan"), _btn("✅ Отметиться", "mdl_nut:checkin")],
                 [_btn("👤 Профиль", "/profile")],
                 _buy_messages_row(),

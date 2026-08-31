@@ -25,6 +25,12 @@ def _profile_buttons(vertical_id: str) -> list[list[dict[str, str]]]:
             [_btn("🪐 Натальная карта", "/natal"), _btn("🌌 Карта судьбы", "/matrix")],
             [_btn("🔢 Нумерология", "/numerology"), _btn("✏️ Обновить профиль", CB_PROFILE_EDIT)],
         ]
+    if vertical_id.strip() == "nutrition":
+        return [
+            [_btn("➕ Записать еду", "mdl_nut:meal"), _btn("📒 Сегодня", "mdl_nut:log:today")],
+            [_btn("📊 За 7 дней", "mdl_nut:log:week")],
+            [_btn("✏️ Обновить профиль", CB_PROFILE_EDIT)],
+        ]
     return [[_btn("✏️ Обновить профиль", CB_PROFILE_EDIT)]]
 
 
