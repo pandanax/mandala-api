@@ -163,6 +163,7 @@ def handle_inbound(
     # Reject callbacks/commands belonging to another product instead of leaking them to the
     # intake validator or spending a wallet message on an LLM interpretation.
     raw_action = (event.text or "").strip().lower()
+    raw_command = raw_action.split(maxsplit=1)[0].split("@", 1)[0]
     if event.vertical_id == "nutrition" and (
         raw_action in {"/natal", "/matrix", "/numerology", "/forecast", "/morning"}
         or raw_action.startswith("mdl:morning")
@@ -174,7 +175,16 @@ def handle_inbound(
             event.vertical_id,
         )
     if event.vertical_id == "astrology" and (
-        raw_action in {"/plan", "/checkin", "/meal", "/foodlog", "/foodweek"}
+        raw_command
+        in {
+            "/plan",
+            "/checkin",
+            "/meal",
+            "/foodlog",
+            "/foodweek",
+            "/foodedit",
+            "/fooddelete",
+        }
         or raw_action.startswith("mdl_nut:")
     ):
         return ensure_nav(

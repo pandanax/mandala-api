@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from typing import Any, cast
@@ -82,10 +83,14 @@ def test_diary_action_routes_commands_and_pending_plain_text_only() -> None:
     assert diary.is_food_diary_action("/meal", {})
     assert diary.is_food_diary_action("/meal@my_bot овсянка 200 г", {})
     assert diary.is_food_diary_action("mdl_nut:log:week", {})
+    assert diary.is_food_diary_action(f"{diary.CB_DELETE_CONFIRM_PREFIX}{uuid4()}", {})
     state = {diary.KEY_MEAL_CAPTURE: True}
     assert diary.is_food_diary_action("банан и йогурт", state)
     assert not diary.is_food_diary_action("/reset", state)
     assert not diary.is_food_diary_action("mdl_nut:plan", state)
+    assert diary.is_food_diary_action("1-й завтрак удали", {})
+    assert diary.is_food_diary_action("исправь запись 2", {})
+    assert not diary.is_food_diary_action("хочу изменить питание", {})
 
 
 def test_daily_and_weekly_render_use_moscow_calendar_days() -> None:
@@ -120,6 +125,8 @@ class _Profiles:
 
 class _DiaryRepo:
     inserted: list[dict[str, Any]] = []
+    updated: list[dict[str, Any]] = []
+    deleted: list[UUID] = []
     listed: list[FoodDiaryEntry] = []
 
     def __init__(self, _conn: object) -> None:
@@ -131,6 +138,38 @@ class _DiaryRepo:
 
     def list_between(self, **_kwargs: Any) -> list[FoodDiaryEntry]:
         return list(self.listed)
+
+    def get_by_id(self, *, user_id: UUID, entry_id: UUID) -> FoodDiaryEntry | None:
+        del user_id
+        return next((entry for entry in self.listed if entry.id == entry_id), None)
+
+    def update(self, **kwargs: Any) -> bool:
+        type(self).updated.append(dict(kwargs))
+        entry_id = kwargs["entry_id"]
+        for index, entry in enumerate(type(self).listed):
+            if entry.id == entry_id:
+                type(self).listed[index] = replace(
+                    entry,
+                    raw_text=kwargs["raw_text"],
+                    items=kwargs["items"],
+                    calories_kcal=kwargs["calories_kcal"],
+                    protein_g=kwargs["protein_g"],
+                    fat_g=kwargs["fat_g"],
+                    carbs_g=kwargs["carbs_g"],
+                    confidence=kwargs["confidence"],
+                    assumptions=kwargs["assumptions"],
+                )
+                return True
+        return False
+
+    def delete(self, *, user_id: UUID, entry_id: UUID) -> bool:
+        del user_id
+        before = len(type(self).listed)
+        type(self).listed = [entry for entry in type(self).listed if entry.id != entry_id]
+        if len(type(self).listed) == before:
+            return False
+        type(self).deleted.append(entry_id)
+        return True
 
 
 class _Messages:
@@ -163,6 +202,8 @@ class _Quota:
 def _install_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
     _Profiles.patches = []
     _DiaryRepo.inserted = []
+    _DiaryRepo.updated = []
+    _DiaryRepo.deleted = []
     _DiaryRepo.listed = []
     _Messages.inserted = []
     _Quota.can_calls = 0
@@ -251,6 +292,101 @@ def test_reading_log_is_free_and_clears_capture(monkeypatch: pytest.MonkeyPatch)
     assert _Quota.can_calls == 0
     assert _Quota.consume_calls == 0
     assert _Profiles.patches[-1][diary.KEY_MEAL_CAPTURE] is False
+    assert out[0].buttons is not None
+    callbacks = [button["callback_data"] for row in out[0].buttons for button in row]
+    assert any(value.startswith(diary.CB_EDIT_PREFIX) for value in callbacks)
+    assert any(value.startswith(diary.CB_DELETE_PREFIX) for value in callbacks)
+
+
+def test_natural_delete_request_confirms_then_rereads_current_db(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fakes(monkeypatch)
+    first = _entry(raw="первый завтрак", eaten_at=datetime(2026, 8, 31, 8, 0, tzinfo=UTC), kcal=300)
+    second = _entry(
+        raw="второй завтрак", eaten_at=datetime(2026, 8, 31, 9, 0, tzinfo=UTC), kcal=400
+    )
+    _DiaryRepo.listed = [first, second]
+    llm = MagicMock()
+
+    confirm = diary.handle_food_diary_action(
+        cast(Any, object()),
+        user_id=uuid4(),
+        text="1-й завтрак удали",
+        scenario_state={"intake_complete": True},
+        agent_card={"age": "41"},
+        llm_client=cast(TextCompletionClient, llm),
+        now=datetime(2026, 8, 31, 12, 0, tzinfo=UTC),
+    )
+    assert "Удалить эту запись" in (confirm[0].text or "")
+    assert "первый завтрак" in (confirm[0].text or "")
+    assert not _DiaryRepo.deleted
+    llm.complete.assert_not_called()
+
+    assert confirm[0].buttons is not None
+    callback = confirm[0].buttons[0][0]["callback_data"]
+    current = diary.handle_food_diary_action(
+        cast(Any, object()),
+        user_id=uuid4(),
+        text=callback,
+        scenario_state={"intake_complete": True},
+        agent_card={"age": "41"},
+        now=datetime(2026, 8, 31, 12, 0, tzinfo=UTC),
+    )
+    assert _DiaryRepo.deleted == [first.id]
+    assert "Запись удалена" in (current[0].text or "")
+    assert "первый завтрак" not in (current[0].text or "")
+    assert "второй завтрак" in (current[0].text or "")
+
+
+def test_edit_recalculates_and_updates_same_db_row(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_fakes(monkeypatch)
+    original = _entry(raw="каша 100 г", eaten_at=datetime(2026, 8, 31, 8, 0, tzinfo=UTC), kcal=100)
+    _DiaryRepo.listed = [original]
+    uid = uuid4()
+
+    prompt = diary.handle_food_diary_action(
+        cast(Any, object()),
+        user_id=uid,
+        text=f"{diary.CB_EDIT_PREFIX}{original.id}",
+        scenario_state={"intake_complete": True},
+        agent_card={"age": "41"},
+        now=datetime(2026, 8, 31, 12, 0, tzinfo=UTC),
+    )
+    assert "Изменение записи" in (prompt[0].text or "")
+    assert _Profiles.patches[-1][diary.KEY_MEAL_EDIT_ID] == str(original.id)
+
+    llm = MagicMock()
+    llm.complete.return_value = _ok_json()
+    current = diary.handle_food_diary_action(
+        cast(Any, object()),
+        user_id=uid,
+        text="гречка 200 г и куриная грудка 150 г",
+        scenario_state={
+            "intake_complete": True,
+            diary.KEY_MEAL_CAPTURE: True,
+            diary.KEY_MEAL_EDIT_ID: str(original.id),
+        },
+        agent_card={"age": "41"},
+        llm_client=cast(TextCompletionClient, llm),
+        now=datetime(2026, 8, 31, 12, 0, tzinfo=UTC),
+    )
+    assert not _DiaryRepo.inserted
+    assert len(_DiaryRepo.updated) == 1
+    assert _DiaryRepo.updated[0]["entry_id"] == original.id
+    assert _DiaryRepo.listed[0].id == original.id
+    assert _DiaryRepo.listed[0].eaten_at == original.eaten_at
+    assert _DiaryRepo.listed[0].calories_kcal == 468
+    assert "Запись обновлена" in (current[0].text or "")
+    assert "гречка 200 г" in (current[0].text or "")
+
+
+def test_clarification_merge_does_not_duplicate_complete_description() -> None:
+    short = "завтрак: блины"
+    complete = "завтрак: блины 350 г со сметаной"
+    assert diary._merge_capture_text(short, complete) == complete
+    assert diary._merge_capture_text(complete, short) == complete
+    assert diary._merge_capture_text("суп", "300 мл") == "суп; 300 мл"
 
 
 def test_domain_routes_diary_before_conversational_llm(monkeypatch: pytest.MonkeyPatch) -> None:

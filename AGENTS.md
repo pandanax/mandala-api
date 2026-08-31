@@ -40,7 +40,13 @@ must produce one clarification and no DB row. Estimates are explicitly approxima
 targets or medical advice. One successful estimation/clarification spends one `text_reply` wallet
 unit; `/foodlog` (today) and `/foodweek` (last 7 Moscow calendar days) are deterministic DB reads
 and free. `/reset` deletes nutrition diary rows as well as profile/messages, but still preserves
-promo and wallet balance. Keep diary commands/callbacks isolated from astrology.
+promo and wallet balance. Daily logs attach edit/delete buttons to each row UUID. Delete requires
+confirmation; edit reuses the structured estimate and updates the same row without changing
+`eaten_at`. All mutation queries are scoped by both `user_id` and row UUID, and every rendered log
+is rebuilt from a fresh PostgreSQL query — never from conversational history or an LLM claim.
+Natural mutation requests such as «удали запись 1» must be intercepted by this deterministic flow;
+the conversational LLM must never claim it changed diary state. Keep diary commands/callbacks
+isolated from astrology.
 
 ## Default delivery workflow for requested changes
 
