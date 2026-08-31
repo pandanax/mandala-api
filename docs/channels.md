@@ -35,6 +35,26 @@
 
 Адаптер **не** решает квоты и бизнес-логику — только маппинг и заполнение **`vertical_id`**.
 
+### Telegram voice как альтернативный текстовый ввод
+
+Для обеих Telegram-вертикалей стандартное `message.voice` проходит один общий путь:
+
+```text
+Telegram Ogg/Opus → getFile/download → Yandex SpeechKit general
+→ нормализованный InboundEvent.text → handle_inbound → существующая бизнес-логика
+```
+
+Отдельного voice-parser или voice-prompt нет. `voice_transcribed=True` служит только для
+наблюдаемости; команды, анкета, deterministic handlers, safety, quota и LLM работают так же,
+как для введённого текста. Аудио хранится только в памяти на время запроса и не записывается в
+БД/файлы. Полный транскрипт не логируется, но как обычный пользовательский текст может попасть в
+существующую историю сообщений, если это делает общий pipeline.
+
+Provider — только Yandex SpeechKit synchronous v1: Ogg/Opus, `topic=general`, по умолчанию
+`lang=ru-RU`, максимум 30 секунд и 1 МиБ. Feature flag `VOICE_ENABLED` включён по умолчанию;
+`VOICE_ENABLED_ASTROLOGY` и `VOICE_ENABLED_NUTRITION` могут переопределить его. Credentials и
+остальные параметры перечислены в `.env.example`.
+
 ## Выход: OutboundMessage
 
 Универсальное представление ответа пользователю:

@@ -71,7 +71,7 @@ class InboundEvent(BaseModel):
     voice_transcribed: bool = Field(
         default=False,
         description=(
-            "``True``, если ``text`` получен транскрипцией голосового/аудио-сообщения (STT), "
+            "``True``, если ``text`` получен транскрипцией Telegram voice через STT, "
             "а не введён текстом. Пометка для логов/аналитики; на пайплайн ответа не влияет."
         ),
     )

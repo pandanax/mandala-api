@@ -24,7 +24,10 @@ from mandala.adapters.telegram.outbound_send import deliver_outbound_messages
 from mandala.adapters.telegram.photo_cache import persist_photo_file_ids
 from mandala.adapters.telegram.secrets import mask_bot_token
 from mandala.adapters.telegram.typing_keepalive import run_with_typing_keepalive
-from mandala.adapters.telegram.voice_transcribe import resolve_voice_to_text
+from mandala.adapters.telegram.voice_transcribe import (
+    complete_voice_processing,
+    resolve_voice_to_text,
+)
 from mandala.db.engine import create_engine_from_env
 from mandala.domain import OutboundMessage, handle_inbound
 from mandala.observability import op_format
@@ -88,28 +91,44 @@ def process_telegram_update(
         logger.warning("telegram: нет chat_id в raw_ref, update_id=%s", update.get("update_id"))
         return
 
-    # Голос/аудио → текст (STT) до общего пайплайна; сбой = мягкое сообщение, не падаем.
+    # Telegram voice → Yandex SpeechKit → тот же доменный text pipeline.
     resolution = resolve_voice_to_text(event, api)
+    if resolution.skip_processing:
+        return
     if resolution.soft_message is not None:
-        deliver_outbound_messages(
-            api,
-            chat_id=int(chat_id),
-            messages=[OutboundMessage(text=resolution.soft_message)],
-            vertical_id=vertical_id,
-        )
+        try:
+            deliver_outbound_messages(
+                api,
+                chat_id=int(chat_id),
+                messages=[OutboundMessage(text=resolution.soft_message)],
+                vertical_id=vertical_id,
+            )
+        except Exception:
+            complete_voice_processing(resolution, success=False)
+            raise
+        complete_voice_processing(resolution, success=True)
         return
     event = resolution.event
 
-    with engine.begin() as conn:
-        outbound = run_with_typing_keepalive(api, int(chat_id), lambda: handle_inbound(event, conn))
+    try:
+        with engine.begin() as conn:
+            outbound = run_with_typing_keepalive(
+                api,
+                int(chat_id),
+                lambda: handle_inbound(event, conn),
+            )
 
-    uploaded = deliver_outbound_messages(
-        api,
-        chat_id=int(chat_id),
-        messages=outbound,
-        vertical_id=vertical_id,
-    )
-    persist_photo_file_ids(engine, event, uploaded)
+        uploaded = deliver_outbound_messages(
+            api,
+            chat_id=int(chat_id),
+            messages=outbound,
+            vertical_id=vertical_id,
+        )
+        persist_photo_file_ids(engine, event, uploaded)
+    except Exception:
+        complete_voice_processing(resolution, success=False)
+        raise
+    complete_voice_processing(resolution, success=True)
 
 
 def run_polling_forever(

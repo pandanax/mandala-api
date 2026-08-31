@@ -18,22 +18,22 @@ def _pick_largest_photo_file_id(photo: list[dict[str, Any]]) -> str | None:
 
 
 def _voice_attachment(msg: dict[str, Any]) -> InboundAttachment | None:
-    """Голосовое (``voice``) или аудио (``audio``) → вложение для STT (тикет: голос→текст).
-
-    ``mime_type`` кладём в extra-поле (``InboundAttachment`` допускает extra), чтобы адаптер
-    подобрал корректное имя/тип файла при скачивании. ``voice`` в Telegram — ogg/opus,
-    ``audio`` — произвольный аудиофайл (mp3, m4a и т.п.).
-    """
-    for kind in ("voice", "audio"):
-        node = msg.get(kind)
-        if isinstance(node, dict):
-            fid = node.get("file_id")
-            if fid is not None:
-                mime = node.get("mime_type")
-                extra: dict[str, Any] = {}
-                if isinstance(mime, str) and mime:
-                    extra["mime_type"] = mime
-                return InboundAttachment(kind=kind, file_id=str(fid), **extra)
+    """Standard Telegram ``message.voice`` → Ogg/Opus attachment with metadata."""
+    node = msg.get("voice")
+    if isinstance(node, dict):
+        fid = node.get("file_id")
+        if fid is not None:
+            extra: dict[str, Any] = {}
+            for source, target in (
+                ("mime_type", "mime_type"),
+                ("file_unique_id", "file_unique_id"),
+                ("duration", "duration_seconds"),
+                ("file_size", "file_size_bytes"),
+            ):
+                value = node.get(source)
+                if value is not None:
+                    extra[target] = value
+            return InboundAttachment(kind="voice", file_id=str(fid), **extra)
     return None
 
 
@@ -131,6 +131,9 @@ def telegram_update_to_inbound_event(
     else:
         body_text, attachments = _message_body(msg)
     raw_ref: dict[str, Any] = {"chat_id": chat_id}
+    update_id = update.get("update_id")
+    if isinstance(update_id, int):
+        raw_ref["update_id"] = update_id
     if "message_id" in msg:
         raw_ref["message_id"] = msg["message_id"]
 

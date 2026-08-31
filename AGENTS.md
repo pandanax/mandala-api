@@ -474,22 +474,35 @@ architecture review).
 
 ## Voice messages: STT (speech → text) before the normal pipeline
 
-Telegram `voice`/`audio` messages are transcribed to text, then flow through the **existing**
+Telegram `message.voice` (Ogg/Opus) is transcribed to text, then flows through the **existing**
 text pipeline (`handle_inbound` → `text_reply`) unchanged — the reply logic never sees audio.
 
-- `inbound_map.py` recognizes `voice`/`audio` → `InboundAttachment(kind=..., file_id=..,
-  mime_type in extra)`; the mapper stays pure (no I/O).
+- `inbound_map.py` recognizes `voice` and retains `file_id`, `file_unique_id`, duration, file
+  size, and MIME metadata in `InboundAttachment`; the mapper stays pure (no I/O). Ordinary
+  Telegram `audio` attachments and video notes are intentionally out of scope.
 - Download + STT orchestration: `adapters/telegram/voice_transcribe.py` (`resolve_voice_to_text`)
   — called in `polling.py` and `webhook_delivery.py` **after** mapping, **before**
   `handle_inbound`. On success it returns an event with `text` filled and
-  `voice_transcribed=True` (`domain/contracts.py`); on ANY failure it returns a friendly
-  `soft_message` (never raises) — the caller delivers that and skips the turn.
+  `voice_transcribed=True` (`domain/contracts.py`); expected download/provider/input failures
+  return a friendly `soft_message`. Transcript normalization is whitespace-only — never add a
+  voice-specific parser, regex correction, prompt, or business branch.
 - Audio bytes: `bot_api.py` `get_file` (getFile) + `download_file` (GET
-  `/file/bot<token>/<file_path>`, retries like `call`).
-- STT provider is OpenAI-compatible `/audio/transcriptions` (Whisper-shaped):
-  `services/transcription.py`. Env `STT_*` with fallback to `LLM_*` for URL+key; **Russian is
-  the default** (`STT_LANGUAGE=ru`, empty = auto). Not configured (no URL+key) → voice degrades
-  softly. Env documented in `.env.example`.
+  `/file/bot<token>/<file_path>`, retries like `call`). Bytes stay in memory and are never
+  persisted. Metadata and transcript length may be logged; full transcript/audio never is.
+- STT abstraction + implementation: `services/transcription.py` (`SpeechToTextProvider`,
+  `YandexSpeechKitProvider`). The only supported provider/model is Yandex SpeechKit synchronous
+  v1 with raw Ogg/Opus, `topic=general`, default `lang=ru-RU`; bounded retries cover timeout,
+  network, 429, and 5xx only. Defaults match provider limits: 30 seconds and 1 MiB.
+- `VOICE_ENABLED` defaults on and supports `VOICE_ENABLED_<VERTICAL>` overrides, so the same
+  feature serves astrology and nutrition. Credentials are only
+  `YANDEX_SPEECHKIT_API_KEY`, IAM token env, or (default on YC VM) the attached service account's
+  metadata IAM token; there is no LLM credential fallback. Missing config degrades softly without
+  a SpeechKit request. All env is documented in `.env.example`.
+- A bounded, process-local `(vertical, user, chat, message_id)` TTL cache suppresses concurrent/
+  repeated delivery before a second STT or business action; failed processing releases the key.
+  It is defense in depth on top of polling offsets and does not survive process restart.
+- Metrics: `mandala.voice.messages`, `mandala.stt.requests`, and `mandala.stt.latency_ms` distinguish
+  STT success from downstream business success. Tests: `tests/test_telegram_voice_stt.py`.
 
 ## Monetization: prepaid message wallet + Telegram Stars packs (NO subscription)
 

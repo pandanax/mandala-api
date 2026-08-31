@@ -43,6 +43,9 @@ HTTP_LATENCY_MS = "mandala.http.latency_ms"  # DGAUGE  {route, stat=avg|max}
 LLM_REQUESTS = "mandala.llm.requests"  # COUNTER {outcome=ok|error|timeout}
 LLM_LATENCY_MS = "mandala.llm.latency_ms"  # DGAUGE  {stat=avg|max}
 TELEGRAM_DELIVERY = "mandala.telegram.delivery"  # COUNTER {method, outcome=ok|error}
+VOICE_MESSAGES = "mandala.voice.messages"  # COUNTER {vertical_id, outcome}
+STT_REQUESTS = "mandala.stt.requests"  # COUNTER {provider, model, outcome}
+STT_LATENCY_MS = "mandala.stt.latency_ms"  # DGAUGE {provider, model, stat=avg|max}
 APP_UP = "mandala.app.up"  # IGAUGE  liveness-heartbeat
 
 _TRUE = frozenset({"1", "true", "yes", "on"})
@@ -361,3 +364,21 @@ def record_telegram_delivery(*, method: str, outcome: str) -> None:
     if registry is None:
         return
     registry.incr(TELEGRAM_DELIVERY, {"method": method, "outcome": outcome})
+
+
+def record_voice(*, vertical_id: str, outcome: str) -> None:
+    """Voice lifecycle counter without audio/transcript contents or user identifiers."""
+    registry = _registry
+    if registry is None:
+        return
+    registry.incr(VOICE_MESSAGES, {"vertical_id": vertical_id, "outcome": outcome})
+
+
+def record_stt(*, outcome: str, elapsed_ms: float, provider: str, model: str) -> None:
+    """STT request outcome and latency, deliberately excluding transcript contents."""
+    registry = _registry
+    if registry is None:
+        return
+    labels = {"provider": provider, "model": model}
+    registry.incr(STT_REQUESTS, {**labels, "outcome": outcome})
+    registry.observe_ms(STT_LATENCY_MS, labels, elapsed_ms)

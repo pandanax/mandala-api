@@ -44,8 +44,13 @@ def test_process_update_acks_callback_before_domain_work(monkeypatch: pytest.Mon
     monkeypatch.setattr(
         polling,
         "resolve_voice_to_text",
-        lambda event, _api: SimpleNamespace(event=event, soft_message=None),
+        lambda event, _api: SimpleNamespace(
+            event=event,
+            soft_message=None,
+            skip_processing=False,
+        ),
     )
+    monkeypatch.setattr(polling, "complete_voice_processing", lambda *a, **kw: None)
 
     def _handle(*args: object, **kwargs: object) -> list[object]:
         order.append("domain")

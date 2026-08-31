@@ -23,7 +23,10 @@ from mandala.metrics import (
     HTTP_REQUESTS,
     LLM_LATENCY_MS,
     LLM_REQUESTS,
+    STT_LATENCY_MS,
+    STT_REQUESTS,
     TELEGRAM_DELIVERY,
+    VOICE_MESSAGES,
     MetricPoint,
     MetricsConfig,
     MetricsRegistry,
@@ -239,6 +242,45 @@ def test_telegram_delivery_metric_error(registry: MetricsRegistry) -> None:
         api.send_message(chat_id=1, text="hi")
     labels = {"method": "sendMessage", "outcome": "error"}
     assert _counter(registry.snapshot(), TELEGRAM_DELIVERY, labels) == 1.0
+
+
+def test_voice_and_stt_metrics_separate_transcription_from_business(
+    registry: MetricsRegistry,
+) -> None:
+    metrics.record_voice(vertical_id="nutrition", outcome="received")
+    metrics.record_voice(vertical_id="nutrition", outcome="business_success")
+    metrics.record_stt(
+        outcome="success",
+        elapsed_ms=123.0,
+        provider="yandex_speechkit",
+        model="general",
+    )
+    points = registry.snapshot()
+    assert (
+        _counter(
+            points,
+            VOICE_MESSAGES,
+            {"vertical_id": "nutrition", "outcome": "received"},
+        )
+        == 1.0
+    )
+    assert (
+        _counter(
+            points,
+            VOICE_MESSAGES,
+            {"vertical_id": "nutrition", "outcome": "business_success"},
+        )
+        == 1.0
+    )
+    assert (
+        _counter(
+            points,
+            STT_REQUESTS,
+            {"provider": "yandex_speechkit", "model": "general", "outcome": "success"},
+        )
+        == 1.0
+    )
+    assert _latency(points, STT_LATENCY_MS, "avg") == 123.0
 
 
 # --- инструментация HTTP (мидлварь) -----------------------------------------------
