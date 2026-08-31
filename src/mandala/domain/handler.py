@@ -17,6 +17,7 @@ from mandala.services.daily_forecast_settings import (
     handle_daily_forecast_action,
     is_daily_forecast_action,
 )
+from mandala.services.food_diary import handle_food_diary_action, is_food_diary_action
 from mandala.services.image_reply import handle_inbound_image_generation
 from mandala.services.intent_router import post_intake_intent
 from mandala.services.nav_guarantee import ensure_nav
@@ -173,7 +174,8 @@ def handle_inbound(
             event.vertical_id,
         )
     if event.vertical_id == "astrology" and (
-        raw_action in {"/plan", "/checkin"} or raw_action.startswith("mdl_nut:")
+        raw_action in {"/plan", "/checkin", "/meal", "/foodlog", "/foodweek"}
+        or raw_action.startswith("mdl_nut:")
     ):
         return ensure_nav(
             [OutboundMessage(text="Эта функция доступна только в помощнике по питанию.")],
@@ -202,6 +204,34 @@ def handle_inbound(
             ),
         )
         return intake_out
+
+    # Nutrition food diary is deterministic except for one structured LLM estimate. It owns
+    # its short capture state and persists normalized entries in ``nutrition_meals``; reports
+    # never go through the conversational LLM and therefore do not spend wallet balance.
+    if event.vertical_id == "nutrition" and is_food_diary_action(
+        event.text, profile.scenario_state
+    ):
+        logger.info(
+            "funnel inbound %s",
+            op_format(
+                vertical_id=event.vertical_id,
+                user_id=uid,
+                channel=event.channel,
+                stage="route",
+                intent="food_diary",
+            ),
+        )
+        return ensure_nav(
+            handle_food_diary_action(
+                conn,
+                user_id=uid,
+                text=event.text,
+                scenario_state=profile.scenario_state,
+                agent_card=profile.agent_card,
+                llm_client=llm_client,
+            ),
+            event.vertical_id,
+        )
 
     # Кнопка «Начать заново» — hard reset напрямую из reply keyboard
     if is_reset_button(event.text):

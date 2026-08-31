@@ -29,6 +29,19 @@ default `ubuntu@…` may fail with `Permission denied (publickey)`. Resolve the 
 with a read-only connection check before deploying and pass `SSH_HOST` explicitly; do not change
 keys, OS Login, or server users as part of an unrelated deploy.
 
+### Nutrition food diary
+
+The nutrition vertical has a persistent food diary. Authoritative flow:
+`services/food_diary.py`; persistence: `repositories/food_diary.py` + table
+`nutrition_meals` (migration `t22_01_nutrition_meals`). `/meal` starts text capture and a
+structured nutrition LLM call estimates calories/protein/fat/carbs; the payload is validated and
+totals are derived from validated item rows before saving. Missing material portion information
+must produce one clarification and no DB row. Estimates are explicitly approximate, never daily
+targets or medical advice. One successful estimation/clarification spends one `text_reply` wallet
+unit; `/foodlog` (today) and `/foodweek` (last 7 Moscow calendar days) are deterministic DB reads
+and free. `/reset` deletes nutrition diary rows as well as profile/messages, but still preserves
+promo and wallet balance. Keep diary commands/callbacks isolated from astrology.
+
 ## Default delivery workflow for requested changes
 
 When the user asks to change the product, completing the task normally means delivering the

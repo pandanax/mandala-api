@@ -5,6 +5,7 @@ from mandala.repositories.daily_forecast import (
     DailyForecastRecipient,
     DailyForecastRepository,
 )
+from mandala.repositories.food_diary import FoodDiaryEntry, FoodDiaryRepository
 from mandala.repositories.messages import MessageRepository
 from mandala.repositories.payments import PaymentTransactionsRepository
 from mandala.repositories.plans import PlanLimitDTO, PlanLimitsRepository, PlansRepository
@@ -19,6 +20,8 @@ __all__ = [
     "ClientProfileDTO",
     "DailyForecastRecipient",
     "DailyForecastRepository",
+    "FoodDiaryEntry",
+    "FoodDiaryRepository",
     "MessageRepository",
     "PaymentTransactionsRepository",
     "PlanLimitDTO",

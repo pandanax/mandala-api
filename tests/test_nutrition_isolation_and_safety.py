@@ -17,10 +17,12 @@ def test_vertical_commands_and_capabilities_are_isolated() -> None:
     assert "natal" in {command for command, _ in astrology.commands}
     assert "natal" not in {command for command, _ in nutrition.commands}
     assert "plan" in {command for command, _ in nutrition.commands}
+    assert {"meal", "foodlog", "foodweek"} <= {command for command, _ in nutrition.commands}
     assert "plan" not in {command for command, _ in astrology.commands}
     assert has_capability("astrology", "daily_forecast")
     assert not has_capability("nutrition", "daily_forecast")
     assert not has_capability("nutrition", "image_generation")
+    assert has_capability("nutrition", "food_diary")
 
 
 def test_callbacks_do_not_cross_verticals() -> None:

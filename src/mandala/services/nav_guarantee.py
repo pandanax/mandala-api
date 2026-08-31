@@ -55,7 +55,8 @@ def _therapy_fallback_buttons() -> list[list[dict[str, str]]]:
 
 def _nutrition_fallback_buttons() -> list[list[dict[str, str]]]:
     return [
-        [_btn("🥗 Следующий шаг", "mdl_nut:plan"), _btn("✅ Отметиться", "mdl_nut:checkin")],
+        [_btn("➕ Записать еду", "mdl_nut:meal"), _btn("📒 Сегодня", "mdl_nut:log:today")],
+        [_btn("📊 За 7 дней", "mdl_nut:log:week"), _btn("🥗 План", "mdl_nut:plan")],
         [_btn("👤 Профиль", "/profile")],
     ]
 
