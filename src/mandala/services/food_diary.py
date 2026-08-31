@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections import defaultdict
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Literal
@@ -27,14 +28,28 @@ logger = logging.getLogger(__name__)
 FOOD_DIARY_TZ = ZoneInfo("Europe/Moscow")
 KEY_MEAL_CAPTURE = "nutrition_meal_capture"
 KEY_MEAL_DRAFT = "nutrition_meal_draft"
+KEY_MEAL_EDIT_ID = "nutrition_meal_edit_id"
 
 CMD_MEAL = "/meal"
 CMD_FOOD_LOG = "/foodlog"
 CMD_FOOD_WEEK = "/foodweek"
+CMD_FOOD_EDIT = "/foodedit"
+CMD_FOOD_DELETE = "/fooddelete"
 CB_MEAL = "mdl_nut:meal"
 CB_MEAL_CANCEL = "mdl_nut:meal:cancel"
 CB_LOG_TODAY = "mdl_nut:log:today"
 CB_LOG_WEEK = "mdl_nut:log:week"
+CB_EDIT_PREFIX = "mdl_nut:fd:e:"
+CB_DELETE_PREFIX = "mdl_nut:fd:d:"
+CB_DELETE_CONFIRM_PREFIX = "mdl_nut:fd:dc:"
+
+_DELETE_RE = re.compile(r"\b(?:удал\w*|убер\w*|сотр\w*)\b", re.IGNORECASE)
+_EDIT_RE = re.compile(r"\b(?:измен\w*|исправ\w*|редакт\w*|пересчита\w*)\b", re.IGNORECASE)
+_DIARY_NOUN_RE = re.compile(
+    r"\b(?:запис\w*|позиц\w*|при[её]м\w*|завтрак\w*|обед\w*|ужин\w*|перекус\w*|дневник\w*)\b",
+    re.IGNORECASE,
+)
+_INDEX_RE = re.compile(r"(?<!\d)(\d{1,3})(?:-?(?:й|я|е|ую|ое))?(?!\d)", re.IGNORECASE)
 
 _MAX_MEAL_TEXT = 1200
 _ESTIMATE_MAX_TOKENS = 4096
@@ -87,6 +102,36 @@ def _capture_buttons() -> list[list[dict[str, str]]]:
     ]
 
 
+def _entry_action_buttons(entries: list[FoodDiaryEntry]) -> list[list[dict[str, str]]]:
+    return [
+        [
+            _btn(f"✏️ Изменить {index}", f"{CB_EDIT_PREFIX}{entry.id}"),
+            _btn(f"🗑 Удалить {index}", f"{CB_DELETE_PREFIX}{entry.id}"),
+        ]
+        for index, entry in enumerate(entries, start=1)
+    ]
+
+
+def _log_buttons(entries: list[FoodDiaryEntry]) -> list[list[dict[str, str]]]:
+    return _entry_action_buttons(entries) + diary_nav_buttons()
+
+
+def _delete_confirmation(entry: FoodDiaryEntry) -> OutboundMessage:
+    return OutboundMessage(
+        text=(
+            "🗑 **Удалить эту запись?**\n"
+            f"{_safe_description(entry.raw_text)}\n"
+            + _macro_line(entry.calories_kcal, entry.protein_g, entry.fat_g, entry.carbs_g)
+        ),
+        buttons=[
+            [
+                _btn("Удалить навсегда", f"{CB_DELETE_CONFIRM_PREFIX}{entry.id}"),
+                _btn("Отмена", CB_LOG_TODAY),
+            ]
+        ],
+    )
+
+
 def _command_and_args(text: str | None) -> tuple[str, str]:
     raw = (text or "").strip()
     if not raw.startswith("/"):
@@ -97,6 +142,43 @@ def _command_and_args(text: str | None) -> tuple[str, str]:
     return head.lower(), args.strip()
 
 
+def _mutation_request(text: str | None) -> tuple[Literal["edit", "delete"], int | None] | None:
+    raw = (text or "").strip()
+    if not raw or raw.startswith("mdl"):
+        return None
+    action, args = _command_and_args(raw)
+    if action in {CMD_FOOD_EDIT, CMD_FOOD_DELETE}:
+        index_match = _INDEX_RE.search(args)
+        return ("edit" if action == CMD_FOOD_EDIT else "delete", _index(index_match))
+    intent: Literal["edit", "delete"] | None = None
+    if _DELETE_RE.search(raw):
+        intent = "delete"
+    elif _EDIT_RE.search(raw):
+        intent = "edit"
+    if intent is None:
+        return None
+    index_match = _INDEX_RE.search(raw)
+    if index_match is None and _DIARY_NOUN_RE.search(raw) is None:
+        return None
+    return intent, _index(index_match)
+
+
+def _index(match: re.Match[str] | None) -> int | None:
+    if match is None:
+        return None
+    value = int(match.group(1))
+    return value if value > 0 else None
+
+
+def _callback_entry_id(action: str, prefix: str) -> UUID | None:
+    if not action.startswith(prefix):
+        return None
+    try:
+        return UUID(action.removeprefix(prefix))
+    except ValueError:
+        return None
+
+
 def is_food_diary_action(text: str | None, scenario_state: dict[str, Any]) -> bool:
     """Whether this turn belongs to the deterministic nutrition diary flow."""
     action, _args = _command_and_args(text)
@@ -104,11 +186,17 @@ def is_food_diary_action(text: str | None, scenario_state: dict[str, Any]) -> bo
         CMD_MEAL,
         CMD_FOOD_LOG,
         CMD_FOOD_WEEK,
+        CMD_FOOD_EDIT,
+        CMD_FOOD_DELETE,
         CB_MEAL,
         CB_MEAL_CANCEL,
         CB_LOG_TODAY,
         CB_LOG_WEEK,
     }:
+        return True
+    if action.startswith((CB_EDIT_PREFIX, CB_DELETE_PREFIX, CB_DELETE_CONFIRM_PREFIX)):
+        return True
+    if _mutation_request(text) is not None:
         return True
     if not bool(scenario_state.get(KEY_MEAL_CAPTURE)):
         return False
@@ -132,6 +220,68 @@ def handle_food_diary_action(
     profiles = ProfileRepository(conn)
     current = now or datetime.now(tz=UTC)
 
+    if action.startswith(CB_DELETE_CONFIRM_PREFIX):
+        entry_id = _callback_entry_id(action, CB_DELETE_CONFIRM_PREFIX)
+        deleted = bool(
+            entry_id is not None
+            and FoodDiaryRepository(conn).delete(user_id=user_id, entry_id=entry_id)
+        )
+        _clear_capture(profiles, user_id)
+        notice = (
+            "✅ Запись удалена из дневника." if deleted else "Запись уже удалена или не найдена."
+        )
+        return [_today_message(conn, user_id=user_id, now=current, notice=notice)]
+
+    if action.startswith(CB_DELETE_PREFIX):
+        entry_id = _callback_entry_id(action, CB_DELETE_PREFIX)
+        entry = (
+            FoodDiaryRepository(conn).get_by_id(user_id=user_id, entry_id=entry_id)
+            if entry_id is not None
+            else None
+        )
+        if entry is None:
+            return [
+                _today_message(
+                    conn,
+                    user_id=user_id,
+                    now=current,
+                    notice="Запись уже удалена или не найдена.",
+                )
+            ]
+        return [_delete_confirmation(entry)]
+
+    if action.startswith(CB_EDIT_PREFIX):
+        entry_id = _callback_entry_id(action, CB_EDIT_PREFIX)
+        entry = (
+            FoodDiaryRepository(conn).get_by_id(user_id=user_id, entry_id=entry_id)
+            if entry_id is not None
+            else None
+        )
+        if entry is None:
+            return [
+                _today_message(
+                    conn,
+                    user_id=user_id,
+                    now=current,
+                    notice="Запись уже удалена или не найдена.",
+                )
+            ]
+        profiles.merge_scenario_state(
+            user_id,
+            {KEY_MEAL_CAPTURE: True, KEY_MEAL_DRAFT: "", KEY_MEAL_EDIT_ID: str(entry.id)},
+        )
+        return [
+            OutboundMessage(
+                text=(
+                    "✏️ **Изменение записи**\n"
+                    f"Сейчас: {_safe_description(entry.raw_text)}\n\n"
+                    "Отправьте полное исправленное описание еды и порций. "
+                    "Я заново оценю КБЖУ и обновлю эту же запись."
+                ),
+                buttons=_capture_buttons(),
+            )
+        ]
+
     if action in {CMD_FOOD_LOG, CB_LOG_TODAY}:
         _clear_capture(profiles, user_id)
         return [_today_message(conn, user_id=user_id, now=current)]
@@ -149,7 +299,7 @@ def handle_food_diary_action(
     if action in {CMD_MEAL, CB_MEAL} and not args:
         profiles.merge_scenario_state(
             user_id,
-            {KEY_MEAL_CAPTURE: True, KEY_MEAL_DRAFT: ""},
+            {KEY_MEAL_CAPTURE: True, KEY_MEAL_DRAFT: "", KEY_MEAL_EDIT_ID: ""},
         )
         return [
             OutboundMessage(
@@ -161,9 +311,48 @@ def handle_food_diary_action(
             )
         ]
 
+    mutation = _mutation_request(text)
+    if mutation is not None and (
+        not bool(scenario_state.get(KEY_MEAL_CAPTURE)) or action in {CMD_FOOD_EDIT, CMD_FOOD_DELETE}
+    ):
+        intent, index = mutation
+        entries = _today_entries(conn, user_id=user_id, now=current)
+        if index is None or index > len(entries):
+            instruction = (
+                "Не смог определить номер записи. Выберите нужную позицию кнопкой ниже."
+                if entries
+                else "В сегодняшнем дневнике пока нет записей для изменения."
+            )
+            return [_today_message(conn, user_id=user_id, now=current, notice=instruction)]
+        entry = entries[index - 1]
+        callback = (
+            f"{CB_EDIT_PREFIX}{entry.id}" if intent == "edit" else f"{CB_DELETE_PREFIX}{entry.id}"
+        )
+        return handle_food_diary_action(
+            conn,
+            user_id=user_id,
+            text=callback,
+            scenario_state=scenario_state,
+            agent_card=agent_card,
+            llm_client=llm_client,
+            now=current,
+        )
+
     meal_text = args if action == CMD_MEAL else (text or "").strip()
     previous = str(scenario_state.get(KEY_MEAL_DRAFT) or "").strip()
-    estimate_text = f"{previous}; {meal_text}" if previous else meal_text
+    estimate_text = _merge_capture_text(previous, meal_text)
+    edit_state = scenario_state.get(KEY_MEAL_EDIT_ID)
+    edit_id = None if action == CMD_MEAL else _state_entry_id(edit_state)
+    if action != CMD_MEAL and edit_state and edit_id is None:
+        _clear_capture(profiles, user_id)
+        return [
+            _today_message(
+                conn,
+                user_id=user_id,
+                now=current,
+                notice="Не удалось определить редактируемую запись; изменения не сохранены.",
+            )
+        ]
     return _estimate_and_record(
         conn,
         user_id=user_id,
@@ -172,6 +361,7 @@ def handle_food_diary_action(
         agent_card=agent_card,
         llm_client=llm_client,
         now=current,
+        edit_id=edit_id,
     )
 
 
@@ -184,6 +374,7 @@ def _estimate_and_record(
     agent_card: dict[str, Any],
     llm_client: TextCompletionClient | None,
     now: datetime,
+    edit_id: UUID | None,
 ) -> list[OutboundMessage]:
     profiles = ProfileRepository(conn)
     clean = " ".join(raw_user_text.split())
@@ -195,6 +386,18 @@ def _estimate_and_record(
                     "примерные порции."
                 ),
                 buttons=_capture_buttons(),
+            )
+        ]
+
+    repo = FoodDiaryRepository(conn)
+    if edit_id is not None and repo.get_by_id(user_id=user_id, entry_id=edit_id) is None:
+        _clear_capture(profiles, user_id)
+        return [
+            _today_message(
+                conn,
+                user_id=user_id,
+                now=now,
+                notice="Запись уже удалена или не найдена; изменения не сохранены.",
             )
         ]
 
@@ -241,7 +444,11 @@ def _estimate_and_record(
             question = "Уточните, пожалуйста, примерный вес или объём порции."
         profiles.merge_scenario_state(
             user_id,
-            {KEY_MEAL_CAPTURE: True, KEY_MEAL_DRAFT: estimate_text[:_MAX_MEAL_TEXT]},
+            {
+                KEY_MEAL_CAPTURE: True,
+                KEY_MEAL_DRAFT: estimate_text[:_MAX_MEAL_TEXT],
+                KEY_MEAL_EDIT_ID: str(edit_id) if edit_id is not None else "",
+            },
         )
         messages.insert(
             user_id=user_id,
@@ -264,9 +471,23 @@ def _estimate_and_record(
 
     items = [item.model_dump() for item in payload.items]
     totals = _totals(payload.items)
-    FoodDiaryRepository(conn).insert(
+    assumptions = [str(item).strip() for item in payload.assumptions if str(item).strip()]
+    if edit_id is None:
+        repo.insert(
+            user_id=user_id,
+            eaten_at=_as_utc(now),
+            raw_text=estimate_text[:_MAX_MEAL_TEXT],
+            items=items,
+            calories_kcal=totals[0],
+            protein_g=totals[1],
+            fat_g=totals[2],
+            carbs_g=totals[3],
+            confidence=payload.confidence,
+            assumptions=assumptions,
+        )
+    elif not repo.update(
         user_id=user_id,
-        eaten_at=_as_utc(now),
+        entry_id=edit_id,
         raw_text=estimate_text[:_MAX_MEAL_TEXT],
         items=items,
         calories_kcal=totals[0],
@@ -274,10 +495,19 @@ def _estimate_and_record(
         fat_g=totals[2],
         carbs_g=totals[3],
         confidence=payload.confidence,
-        assumptions=[str(item).strip() for item in payload.assumptions if str(item).strip()],
-    )
+        assumptions=assumptions,
+    ):
+        _clear_capture(profiles, user_id)
+        return [
+            _today_message(
+                conn,
+                user_id=user_id,
+                now=now,
+                notice="Запись уже удалена или не найдена; изменения не сохранены.",
+            )
+        ]
     _clear_capture(profiles, user_id)
-    confirmation = _confirmation_text(estimate_text, payload, totals)
+    confirmation = _confirmation_text(estimate_text, payload, totals, updated=edit_id is not None)
     messages.insert(
         user_id=user_id,
         vertical_id="nutrition",
@@ -295,6 +525,8 @@ def _estimate_and_record(
         content_meta={"food_diary": "estimate"},
     )
     quota.consume(user_id=user_id, vertical_id="nutrition", resource=RESOURCE_TEXT_REPLY)
+    if edit_id is not None:
+        return [_today_message(conn, user_id=user_id, now=now, notice=confirmation)]
     return [OutboundMessage(text=confirmation, buttons=diary_nav_buttons())]
 
 
@@ -350,8 +582,35 @@ def _totals(items: list[_EstimatedItem]) -> tuple[float, float, float, float]:
     )
 
 
+def _merge_capture_text(previous: str, current: str) -> str:
+    """Join clarification text without duplicating an already-complete description."""
+    old = " ".join(previous.split()).strip()
+    new = " ".join(current.split()).strip()
+    if not old:
+        return new
+    if not new:
+        return old
+    old_folded = old.casefold()
+    new_folded = new.casefold()
+    if old_folded in new_folded:
+        return new
+    if new_folded in old_folded:
+        return old
+    return f"{old}; {new}"
+
+
+def _state_entry_id(value: Any) -> UUID | None:
+    try:
+        return UUID(str(value)) if value else None
+    except ValueError:
+        return None
+
+
 def _clear_capture(profiles: ProfileRepository, user_id: UUID) -> None:
-    profiles.merge_scenario_state(user_id, {KEY_MEAL_CAPTURE: False, KEY_MEAL_DRAFT: ""})
+    profiles.merge_scenario_state(
+        user_id,
+        {KEY_MEAL_CAPTURE: False, KEY_MEAL_DRAFT: "", KEY_MEAL_EDIT_ID: ""},
+    )
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -365,11 +624,24 @@ def _day_bounds(day: date) -> tuple[datetime, datetime]:
     return start.astimezone(UTC), (start + timedelta(days=1)).astimezone(UTC)
 
 
-def _today_message(conn: Connection, *, user_id: UUID, now: datetime) -> OutboundMessage:
+def _today_entries(conn: Connection, *, user_id: UUID, now: datetime) -> list[FoodDiaryEntry]:
     local_day = _as_utc(now).astimezone(FOOD_DIARY_TZ).date()
     start, end = _day_bounds(local_day)
-    entries = FoodDiaryRepository(conn).list_between(user_id=user_id, start=start, end=end)
-    return OutboundMessage(text=render_daily_log(entries, local_day), buttons=diary_nav_buttons())
+    return FoodDiaryRepository(conn).list_between(user_id=user_id, start=start, end=end)
+
+
+def _today_message(
+    conn: Connection,
+    *,
+    user_id: UUID,
+    now: datetime,
+    notice: str | None = None,
+) -> OutboundMessage:
+    local_day = _as_utc(now).astimezone(FOOD_DIARY_TZ).date()
+    entries = _today_entries(conn, user_id=user_id, now=now)
+    report = render_daily_log(entries, local_day)
+    text = f"{notice}\n\n{report}" if notice else report
+    return OutboundMessage(text=text, buttons=_log_buttons(entries))
 
 
 def _week_message(conn: Connection, *, user_id: UUID, now: datetime) -> OutboundMessage:
@@ -414,8 +686,11 @@ def _confirmation_text(
     raw_text: str,
     payload: _EstimatePayload,
     totals: tuple[float, float, float, float],
+    *,
+    updated: bool = False,
 ) -> str:
-    lines = ["✅ **Записал в дневник**", _safe_description(raw_text), "", _macro_line(*totals)]
+    title = "✅ **Запись обновлена**" if updated else "✅ **Записал в дневник**"
+    lines = [title, _safe_description(raw_text), "", _macro_line(*totals)]
     assumptions = [str(item).strip() for item in payload.assumptions if str(item).strip()]
     if assumptions:
         lines.extend(["", "Допущения: " + "; ".join(assumptions[:3])])

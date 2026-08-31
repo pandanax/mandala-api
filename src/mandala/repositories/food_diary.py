@@ -105,6 +105,77 @@ class FoodDiaryRepository:
         ).all()
         return [self._to_entry(row) for row in rows]
 
+    def get_by_id(self, *, user_id: UUID, entry_id: UUID) -> FoodDiaryEntry | None:
+        row = self._conn.execute(
+            text(
+                """
+                SELECT id, user_id, eaten_at, raw_text, items,
+                       calories_kcal, protein_g, fat_g, carbs_g,
+                       confidence, assumptions, created_at
+                FROM nutrition_meals
+                WHERE id = :entry_id AND user_id = :user_id
+                """
+            ),
+            {"entry_id": entry_id, "user_id": user_id},
+        ).one_or_none()
+        return self._to_entry(row) if row is not None else None
+
+    def update(
+        self,
+        *,
+        user_id: UUID,
+        entry_id: UUID,
+        raw_text: str,
+        items: list[dict[str, Any]],
+        calories_kcal: float,
+        protein_g: float,
+        fat_g: float,
+        carbs_g: float,
+        confidence: str,
+        assumptions: list[str],
+    ) -> bool:
+        result = self._conn.execute(
+            text(
+                """
+                UPDATE nutrition_meals
+                SET raw_text = :raw_text,
+                    items = CAST(:items AS jsonb),
+                    calories_kcal = :calories_kcal,
+                    protein_g = :protein_g,
+                    fat_g = :fat_g,
+                    carbs_g = :carbs_g,
+                    confidence = :confidence,
+                    assumptions = CAST(:assumptions AS jsonb)
+                WHERE id = :entry_id AND user_id = :user_id
+                """
+            ),
+            {
+                "entry_id": entry_id,
+                "user_id": user_id,
+                "raw_text": raw_text,
+                "items": json.dumps(items, ensure_ascii=False),
+                "calories_kcal": calories_kcal,
+                "protein_g": protein_g,
+                "fat_g": fat_g,
+                "carbs_g": carbs_g,
+                "confidence": confidence,
+                "assumptions": json.dumps(assumptions, ensure_ascii=False),
+            },
+        )
+        return bool(result.rowcount)
+
+    def delete(self, *, user_id: UUID, entry_id: UUID) -> bool:
+        result = self._conn.execute(
+            text(
+                """
+                DELETE FROM nutrition_meals
+                WHERE id = :entry_id AND user_id = :user_id
+                """
+            ),
+            {"entry_id": entry_id, "user_id": user_id},
+        )
+        return bool(result.rowcount)
+
     def delete_for_user(self, *, user_id: UUID) -> int:
         result = self._conn.execute(
             text("DELETE FROM nutrition_meals WHERE user_id = :user_id"),
